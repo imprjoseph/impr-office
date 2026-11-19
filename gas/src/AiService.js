@@ -1,8 +1,8 @@
 /**
- * AI：文件產出（新聞稿、致詞稿、建議書初稿、結案報告）、每日待辦摘要與主管週報、AI 平面設計提示詞。
+ * AI：文件產出（新聞稿、致詞稿、建議書初稿、結案報告）、每日待辦摘要與主管週報、AI 平面設計（Claude 寫文案與提示詞，GPT 出圖）。
  * 同仁填的資料欄位與範本在 AiForms.js。
  *
- * 金鑰放在 Script Properties（ANTHROPIC_API_KEY），由管理者自己貼，不進程式碼、不進試算表。
+ * 金鑰放在 Script Properties（ANTHROPIC_API_KEY、OPENAI_API_KEY），由管理者自己貼，不進程式碼、不進試算表。
  * 每次呼叫都記進 ai_jobs（誰、做什麼、用了多少 token）；當月用量超過設定上限就暫停，避免帳單失控。
  * 沒設金鑰時每日提醒照常寄送，只是不經 AI 整理。
  */
@@ -27,15 +27,18 @@ const AiService = {
   /**
    * 依同仁逐項填的資料產出文件；有選專案就另附專案的工作與進度（結案報告必選）。回傳文字並另存成 Google 文件。
    */
-  generateDocument(kind, projectId, values, ctx) {
+  generateDocument(kind, projectId, values, ctx, research) {
     const spec = AI_DOC_KINDS[kind];
     if (!spec) throw new AppError(ERROR_CODES.VALIDATION, '不支援的文件類型：' + kind);
     const form = AI_DOC_FORMS_[kind];
     if (form.needsProject && !projectId) throw new AppError(ERROR_CODES.VALIDATION, spec.label + '要選擇專案，才能整理工作完成情形');
     const brief = aiFormBrief_(form.fields, values);
     const detail = projectId ? ProjectService.get(projectId, ctx) : null;
-    const prompt = '同仁填寫的資料：\n' + brief + (detail ? '\n\n專案系統資料：\n' + projectBrief_(detail) : '') + '\n\n請產出：' + spec.label;
+    const ref = String(research || '').trim().slice(0, 6000);
+    const prompt = '同仁填寫的資料：\n' + brief + (detail ? '\n\n專案系統資料：\n' + projectBrief_(detail) : '') +
+      (ref ? '\n\n客戶單位背景與既有稿件寫法（網路查詢結果，經同仁確認）：\n' + ref : '') + '\n\n請產出：' + spec.label;
     const system = '你是 imPR 新動力公關顧問公司的資深文案。只用繁體中文（台灣用語）。' + spec.guide +
+      '\n稿件要清楚說明客戶單位是誰（全名與角色）。有提供客戶單位既有稿件寫法時，標題、導言與用語盡量貼近該單位的習慣。' +
       '\n以同仁填寫的資料為準；資料沒有的地方用【待補】，不要自己編人名、數字或實績。\n用 Markdown 標題與段落輸出，不要加任何前言或解釋。';
     const res = this.callClaude_(CLAUDE_DOC_MODEL_, system, prompt, CLAUDE_DOC_MAX_TOKENS_, 'doc.' + kind, projectId || null, ctx);
     const name = String((values || {}).event_name || (detail ? detail.project.name : '')).trim();
@@ -46,19 +49,30 @@ const AiService = {
   },
 
   /**
-   * AI 平面設計：只產出提示詞，不直接生圖。Claude 依同仁填的需求寫主標、副標、文案、設計概念，
-   * 以及可直接貼到指定生圖工具的英文提示詞（含中文說明），同仁自己到工具裡生圖、挑圖。
+   * 上網查客戶單位：單位簡介、近期重要政策或活動，以及該單位既有新聞稿的寫法（標題、導言、引述、署名習慣）。
+   * 結果先給同仁看（附來源連結、可修改），寫稿時再當參考資料帶進去。和寫稿分成兩次呼叫，各自都在 Apps Script 的逾時內。
+   */
+  researchClient(clientUnit, clientSite, kind, projectId, ctx) {
+    const unit = String(clientUnit || '').trim();
+    if (!unit) throw new AppError(ERROR_CODES.VALIDATION, '請填寫「客戶單位」');
+    const label = (AI_DOC_KINDS[kind] || AI_DOC_KINDS.press_release).label;
+    const system = '你是公關公司的研究助理。只用繁體中文（台灣用語）。用網路搜尋查這個單位，優先看它的官方網站與新聞發布頁。' +
+      '只寫查得到的事實，查不到就寫「查無資料」，不要猜。輸出三段，用 Markdown 小標：' +
+      '「## 單位簡介」（全名、層級、主管業務，3 到 5 句）、「## 近期重點」（近一年的政策、活動或新聞，條列最多 5 點）、' +
+      '「## 既有' + label + '寫法」（該單位已發布稿件的標題格式、導言寫法、常見用語、引述與署名習慣，條列，並舉一個實際標題為例）。不要加前言。';
+    const prompt = '客戶單位：' + unit + (clientSite ? '\n官方網站或新聞頁：' + clientSite : '') + '\n要寫的稿件：' + label;
+    const tool = { type: 'web_search_20260209', name: 'web_search', max_uses: 4 };
+    const res = this.callClaude_(CLAUDE_DOC_MODEL_, system, prompt, 2500, 'research.client', projectId || null, ctx, { tools: [tool], effort: 'low' });
+    return { text: res.text, sources: res.sources };
+  },
+
+  /**
+   * AI 平面設計第一步：Claude 依同仁填的需求寫主標、副標、文案、設計概念與給 GPT 的英文生圖提示詞。
+   * 出圖是第二步（designImage），分開呼叫：兩段各自都在 Apps Script 約 60 秒的逾時內，同仁也能先改提示詞或挑變化版再出圖。
    */
   design(projectId, values, ctx) {
     const brief = aiFormBrief_(AI_DESIGN_FORM_.fields, values);
-    const tool = String(values.tool);
-    const toolHint = {
-      'Midjourney': '英文提示詞結尾加上 Midjourney 參數：--ar（依比例）--style raw --v 7，負面元素用 --no 列出。',
-      'ChatGPT（GPT 生圖）': '用完整英文句子描述畫面，開頭說明尺寸比例，最後一句寫明 "No text, no letters, no logos."。',
-      'Gemini': '用完整英文句子描述畫面與比例，最後寫明不要出現文字。',
-      'Canva AI': '提示詞要短（60 字以內英文），只描述主體、風格與色調。',
-      '通用': '寫成大部分生圖工具都能用的英文描述，不帶任何工具專用參數。',
-    }[tool] || '';
+    const toolHint = '提示詞是給 OpenAI GPT 生圖用的：用完整英文句子描述畫面主體、構圖、光線、色調與質感，開頭說明比例，最後一句寫明 "No text, no letters, no logos."。';
     const system = '你是國際會議主視覺設計顧問。先決定一個貫穿畫面的視覺比喻，再設計元素。避免常見的 AI 圖像感（過度光暈、廉價科技藍、無意義的電路紋）。' +
       '圖裡不放任何文字，字由設計師後製套上。' + toolHint +
       '\n只輸出 JSON，不要其他文字：{"headline":"主標","subheadline":"副標","copy":"一段 40 字內文案","concept":"視覺比喻與構圖說明（繁體中文）",' +
@@ -71,11 +85,20 @@ const AiService = {
     } catch (e) {
       throw new AppError(ERROR_CODES.VALIDATION, 'AI 回傳的格式有誤，請再試一次');
     }
-    return { plan, tool };
+    return { plan };
+  },
+
+  /** AI 平面設計第二步：把（同仁可能改過的）提示詞交給 GPT 出圖。圖直接回傳給前端下載，不存試算表（base64 超過儲存格上限）。 */
+  designImage(prompt, ratio, projectId, ctx) {
+    const p = String(prompt || '').trim();
+    if (!p) throw new AppError(ERROR_CODES.VALIDATION, '缺少提示詞');
+    if (p.length > 4000) throw new AppError(ERROR_CODES.VALIDATION, '提示詞太長，請精簡到 4000 字內');
+    return { image: generateImage_(p, ratio, ctx, projectId) };
   },
 
   /** 呼叫 Claude Messages API（raw HTTP；Apps Script 沒有官方 SDK）。回傳 { text, jobId }。 */
-  callClaude_(model, system, prompt, maxTokens, kind, projectId, ctx) {
+  callClaude_(model, system, prompt, maxTokens, kind, projectId, ctx, opts) {
+    const o = opts || {};
     const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
     if (!key) throw new AppError(ERROR_CODES.VALIDATION, '尚未設定 Claude API 金鑰，請管理者在 Apps Script 的指令碼屬性加上 ANTHROPIC_API_KEY');
     assertAiQuota_();
@@ -84,40 +107,51 @@ const AiService = {
       max_tokens: maxTokens,
       system,
       messages: [{ role: 'user', content: prompt }],
-      output_config: { effort: model === CLAUDE_SUMMARY_MODEL_ ? 'low' : 'medium' },
+      output_config: { effort: o.effort || (model === CLAUDE_SUMMARY_MODEL_ ? 'low' : 'medium') },
     };
+    if (o.tools) body.tools = o.tools;
     const headers = { 'x-api-key': key, 'anthropic-version': CLAUDE_VERSION_ };
     // Sonnet 遇到安全分類器誤擋時，伺服器端自動改用其他模型重跑，同一次呼叫內完成。
     if (model === CLAUDE_DOC_MODEL_) {
       headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
       body.fallbacks = 'default';
     }
-    let res;
-    try {
-      res = UrlFetchApp.fetch(CLAUDE_URL_, {
-        method: 'post', contentType: 'application/json', headers, payload: JSON.stringify(body), muteHttpExceptions: true,
-      });
-    } catch (e) {
-      throw new AppError(ERROR_CODES.VALIDATION, 'AI 服務連線失敗，請稍後再試');
+    const job = { kind, project_id: projectId, prompt: String(prompt).slice(0, 4000), model, input_tokens: 0, output_tokens: 0 };
+    const content = [];
+    let json;
+    // 上網搜尋這類伺服器端工具跑太久時會回 pause_turn：把目前內容帶回去再送一次，伺服器會接著做（最多接兩次）。
+    for (let round = 0; round < 3; round++) {
+      let res;
+      try {
+        res = UrlFetchApp.fetch(CLAUDE_URL_, {
+          method: 'post', contentType: 'application/json', headers, payload: JSON.stringify(body), muteHttpExceptions: true,
+        });
+      } catch (e) {
+        throw new AppError(ERROR_CODES.VALIDATION, 'AI 服務連線失敗，請稍後再試');
+      }
+      json = JSON.parse(res.getContentText());
+      if (json.type === 'error' || (res.getResponseCode && res.getResponseCode() >= 400)) {
+        recordAiJob_(Object.assign(job, { status: 'error', error: json.error ? json.error.message : 'HTTP ' + res.getResponseCode() }), ctx);
+        throw new AppError(ERROR_CODES.VALIDATION, 'AI 服務暫時無法使用：' + (json.error ? json.error.message : '請稍後再試'));
+      }
+      const usage = json.usage || {};
+      job.input_tokens += usage.input_tokens || 0;
+      job.output_tokens += usage.output_tokens || 0;
+      (json.content || []).forEach(b => content.push(b));
+      if (json.stop_reason !== 'pause_turn') break;
+      body.messages = [{ role: 'user', content: prompt }, { role: 'assistant', content: content.slice() }];
     }
-    const json = JSON.parse(res.getContentText());
-    const job = { kind, project_id: projectId, prompt: String(prompt).slice(0, 4000), model };
-    if (json.type === 'error' || (res.getResponseCode && res.getResponseCode() >= 400)) {
-      recordAiJob_(Object.assign(job, { status: 'error', error: json.error ? json.error.message : 'HTTP ' + res.getResponseCode() }), ctx);
-      throw new AppError(ERROR_CODES.VALIDATION, 'AI 服務暫時無法使用：' + (json.error ? json.error.message : '請稍後再試'));
-    }
-    const usage = json.usage || {};
-    Object.assign(job, { input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0 });
     if (json.stop_reason === 'refusal') {
       recordAiJob_(Object.assign(job, { status: 'refused' }), ctx);
       throw new AppError(ERROR_CODES.VALIDATION, 'AI 拒絕產生這份內容，請調整補充說明後再試');
     }
-    const text = (json.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    const text = content.filter(b => b.type === 'text').map(b => b.text).join('').trim();
     // 被 max_tokens 截斷時照樣給使用者，但標示出來，免得把半份文件當完整版用。
     const finalText = json.stop_reason === 'max_tokens' ? text + '\n\n【AI 輸出長度已達上限，內容可能不完整】' : text;
     const jobRow = recordAiJob_(Object.assign(job, { status: 'done', output: finalText.slice(0, 40000) }), ctx);
-    return { text: finalText, jobId: jobRow.id };
+    return { text: finalText, jobId: jobRow.id, sources: webSources_(content) };
   },
+
 
   usageThisMonth() {
     const month = todayIso_().slice(0, 7);
@@ -168,6 +202,63 @@ function saveAsGoogleDoc_(title, markdown) {
   });
   doc.saveAndClose();
   return doc.getUrl();
+}
+
+/**
+ * OpenAI GPT 生圖（Images API）。模型名稱放設定（openai_image_model），OpenAI 換版本時改設定就好。
+ * GPT 生圖只支援橫、方、直三種尺寸，依前端選的比例挑最接近的一種。
+ */
+function generateImage_(prompt, size, ctx, projectId) {
+  const key = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+  if (!key) throw new AppError(ERROR_CODES.VALIDATION, '尚未設定 OpenAI API 金鑰，請管理者在指令碼屬性加上 OPENAI_API_KEY');
+  assertAiQuota_();
+  const model = setting_('openai_image_model');
+  let res;
+  try {
+    res = UrlFetchApp.fetch('https://api.openai.com/v1/images/generations', {
+      method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + key }, muteHttpExceptions: true,
+      payload: JSON.stringify({ model, prompt: prompt + '\nNo text, no letters, no logos.', size: openAiImageSize_(size), n: 1 }),
+    });
+  } catch (e) {
+    throw new AppError(ERROR_CODES.VALIDATION, '生圖服務連線失敗，請稍後再試');
+  }
+  let json;
+  try { json = JSON.parse(res.getContentText()); } catch (e) { json = {}; }
+  const img = ((json.data || [])[0] || {}).b64_json;
+  const usage = json.usage || {};
+  const errMsg = json.error ? json.error.message : '沒有產生圖片';
+  recordAiJob_({ kind: 'design.image', project_id: projectId, prompt: String(prompt).slice(0, 4000), model, status: img ? 'done' : 'error',
+    input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0, error: img ? null : errMsg }, ctx);
+  if (!img) throw new AppError(ERROR_CODES.VALIDATION, '生圖失敗：' + (json.error ? json.error.message : '沒有產生圖片，請調整描述再試'));
+  return { mimeType: 'image/png', base64: img };
+}
+
+/** 比例（16:9、1:1、4:5、A 系列直式…）或像素（1920x1080）換成 GPT 生圖支援的尺寸。 */
+function openAiImageSize_(size) {
+  const s = String(size || '16:9');
+  const m = s.match(/(\d+)\s*[:x×]\s*(\d+)/);
+  const ratio = m ? Number(m[1]) / Number(m[2]) : /直式/.test(s) ? 0.7 : /方/.test(s) ? 1 : 16 / 9;
+  if (ratio > 1.15) return '1536x1024';
+  if (ratio < 0.87) return '1024x1536';
+  return '1024x1024';
+}
+
+/** 從回應裡整理搜尋到的來源（標題＋網址），去除重複。 */
+function webSources_(content) {
+  const seen = {};
+  const out = [];
+  const add = (url, title) => {
+    if (!url || seen[url] || !/^https?:\/\//.test(url)) return;
+    seen[url] = true;
+    out.push({ url, title: title || url });
+  };
+  content.forEach(b => {
+    if (b.type === 'text' && Array.isArray(b.citations)) b.citations.forEach(c => add(c.url, c.title));
+  });
+  content.forEach(b => {
+    if (b.type === 'web_search_tool_result' && Array.isArray(b.content)) b.content.forEach(r => add(r.url, r.title));
+  });
+  return out.slice(0, 12);
 }
 
 // ---------------- 每日提醒與主管週報 ----------------
@@ -258,8 +349,12 @@ function aiRoutes_() {
   return {
     'ai.forms': { roles: INTERNAL_ROLES_, handler: () => aiFormsForClient_() },
     'ai.generateDocument': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
-      AiService.generateDocument(requireString_(p, 'kind'), p.project_id || null, p.values || {}, ctx) },
+      AiService.generateDocument(requireString_(p, 'kind'), p.project_id || null, p.values || {}, ctx, p.research || null) },
+    'ai.researchClient': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      AiService.researchClient(requireString_(p, 'client_unit'), p.client_site || null, p.kind || 'press_release', p.project_id || null, ctx) },
     'ai.design': { roles: INTERNAL_ROLES_, handler: (p, ctx) => AiService.design(p.project_id || null, p.values || {}, ctx) },
+    'ai.designImage': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      AiService.designImage(requireString_(p, 'prompt'), p.ratio || null, p.project_id || null, ctx) },
     'ai.usage': { roles: [ROLES.ADMIN], handler: () => AiService.usageThisMonth() },
   };
 }

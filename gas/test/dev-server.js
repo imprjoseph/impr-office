@@ -54,7 +54,14 @@ gov.data = [['主鍵', '公告日', '機關', '案名', '預算', '截止投標'
 gov.formulas['2,12'] = '=HYPERLINK("https://web.pcc.gov.tw/","開啟")';
 // 本機預覽不連真的 AI：文件回一段示範文字，設計回示範提示詞。
 env.properties.ANTHROPIC_API_KEY = 'dev';
-env.aiHandler = body => {
+env.properties.OPENAI_API_KEY = 'dev';
+// 1x1 深藍色 PNG，當作示範底圖
+const DEMO_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
+env.aiHandler = (body, url) => {
+  if (/openai/.test(url)) return { data: [{ b64_json: DEMO_PNG }], usage: { input_tokens: 10, output_tokens: 100 } };
+  if (body.tools) return { type: 'message', stop_reason: 'end_turn', usage: { input_tokens: 100, output_tokens: 50 }, content: [{ type: 'text',
+    text: '## 單位簡介\n（本機示範）這裡會是 AI 上網查到的單位簡介。\n\n## 近期重點\n- 示範重點一\n\n## 既有新聞稿寫法\n- 標題常用「主題＋活動名稱」\n- 導言先寫首長與活動目的',
+    citations: [{ type: 'web_search_result_location', url: 'https://www.hpa.gov.tw/', title: '示範來源：國民健康署' }] }] };
   const text = /只輸出 JSON/.test(body.system)
     ? JSON.stringify({ headline: '早期守護', subheadline: '2027 台灣早期 CKD 國際論壇', copy: '串連國際專家，讓腎臟照護走在病程前面。', concept: '以晨光中的雙手托起抽象腎形，象徵早期守護。',
       prompt: 'Two gentle hands cradling an abstract kidney-shaped form made of soft dawn light, deep navy and warm gold palette, Taiwan island silhouette subtly in the horizon, calm premium medical conference key visual, editorial photography style --ar 16:9 --style raw --v 7 --no text, letters, logos',

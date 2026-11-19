@@ -9,7 +9,7 @@
 | 預算與費用 | 預算科目、增減項、毛利即時重算與警示；請款與報帳（申請人 → 直屬主管 → 會計付款），核准後計入專案成本 |
 | 人力 | 考勤（辦公室／出差打卡、請假、加班、補卡、主管審核、月報）、派遣（排班、現場打卡、回報；工時 × 時薪計入專案成本）、工時週報 |
 | 資源 | 客戶、聯絡人、往來紀錄、供應商、資材借還、SOP（版本控制）、媒體名單、案例、帳密大全（限管理者） |
-| AI | 新聞稿、致詞稿、建議書初稿、結案報告（Claude）；每日待辦提醒、主管週報；AI 平面設計（Claude 寫文案與生圖提示詞，同仁貼到生圖工具使用） |
+| AI | 新聞稿、致詞稿、建議書初稿、結案報告（Claude）；每日待辦提醒、主管週報；AI 平面設計（Claude 寫文案與提示詞，GPT 出圖） |
 
 ## 架構
 
@@ -29,7 +29,7 @@ cd web && VITE_API_URL=http://localhost:8795 npx vite   # 前端
 
 1. `cd gas && npx @google/clasp push --force`，再 `clasp deploy -i <部署 ID>`。
 2. 第一次：在 Apps Script 編輯器執行 `setupDatabase()`（建立資料庫）、`installTriggers()`（每日提醒、週報）。
-3. 指令碼屬性：`ANTHROPIC_API_KEY`（AI 功能）、`OLD_ATTENDANCE_SHEET_ID`、`OLD_CRM_SHEET_ID`（搬資料）。
+3. 指令碼屬性：`ANTHROPIC_API_KEY`、`OPENAI_API_KEY`（AI 功能）、`OLD_ATTENDANCE_SHEET_ID`、`OLD_CRM_SHEET_ID`（搬資料）。
 4. 前端：`cd web && VITE_API_URL=<部署網址> npm run build`，把 `web/dist` 推到 GitHub Pages。
 
 ## 搬資料與切換

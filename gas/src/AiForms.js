@@ -11,6 +11,11 @@ const AUDIENCES_ = ['政府機關', '企業主管', '醫療專業人員', '學�
 const TONES_ = ['正式莊重', '專業親切', '溫暖感性', '活潑年輕', '國際大氣'];
 
 // 文件共用的活動基本資料
+const AI_CLIENT_FIELDS_ = [
+  { name: 'client_unit', label: '客戶單位（委託本司的單位全名）', type: 'text', required: true, fromProject: 'client_name', research: true },
+  { name: 'client_site', label: '客戶官網或新聞稿頁網址', type: 'text', placeholder: '選填；填了 AI 會優先參考這裡的既有新聞稿' },
+];
+
 const DOC_BASE_FIELDS_ = [
   { name: 'event_name', label: '活動名稱', type: 'text', required: true, fromProject: 'name' },
   { name: 'organizer', label: '主辦單位', type: 'text', required: true, fromProject: 'client_name' },
@@ -23,7 +28,8 @@ const DOC_BASE_FIELDS_ = [
 
 const AI_DOC_FORMS_ = {
   press_release: {
-    fields: DOC_BASE_FIELDS_.concat([
+    research: true,
+    fields: AI_CLIENT_FIELDS_.concat(DOC_BASE_FIELDS_, [
       { name: 'timing', label: '發布時機', type: 'select', required: true, options: ['活動前預告', '活動當天發布', '活動後成果'] },
       { name: 'key_points', label: '新聞重點（一行一點）', type: 'textarea', required: true, placeholder: '最多三點，最重要的放第一行' },
       { name: 'quote_person', label: '引述人姓名與職稱', type: 'text', placeholder: '例如：衛生福利部 王○○ 部長' },
@@ -33,6 +39,7 @@ const AI_DOC_FORMS_ = {
       { name: 'contact', label: '新聞聯絡人', type: 'text', placeholder: '姓名、電話、Email' },
     ]),
     template: {
+      client_unit: '台灣腎臟醫學會', client_site: '',
       event_name: '2027 台灣早期慢性腎臟病照護國際論壇', organizer: '台灣腎臟醫學會', co_organizers: '衛生福利部國民健康署',
       event_date: '2027-03-20', venue: '台大醫院國際會議中心', audience: ['醫療專業人員', '政府機關', '媒體記者'], tone: '專業親切',
       timing: '活動當天發布', key_points: '十國專家分享早期腎病篩檢經驗\n發表台灣早期 CKD 照護成果\n宣布明年全國篩檢推廣計畫',
@@ -41,7 +48,8 @@ const AI_DOC_FORMS_ = {
     },
   },
   speech: {
-    fields: DOC_BASE_FIELDS_.concat([
+    research: true,
+    fields: AI_CLIENT_FIELDS_.concat(DOC_BASE_FIELDS_, [
       { name: 'speaker', label: '致詞人姓名與職稱', type: 'text', required: true },
       { name: 'role', label: '致詞身分', type: 'select', required: true, options: ['主辦單位長官', '指導單位長官', '貴賓', '協辦單位', '閉幕致詞'] },
       { name: 'duration', label: '長度', type: 'select', required: true, options: ['1 分鐘（約 250 字）', '3 分鐘（約 750 字）', '5 分鐘（約 1200 字）'] },
@@ -50,6 +58,7 @@ const AI_DOC_FORMS_ = {
       { name: 'style', label: '致詞風格', type: 'multi', options: ['引用數據', '分享小故事', '展望未來', '呼籲行動', '幽默輕鬆'] },
     ]),
     template: {
+      client_unit: '經濟部產業發展署', client_site: '',
       event_name: '2027 智慧醫療創新論壇', organizer: '經濟部產業發展署', event_date: '2027-05-12', venue: '台北國際會議中心',
       audience: ['產業從業人員', '政府機關'], tone: '正式莊重', speaker: '經濟部產業發展署 署長', role: '主辦單位長官',
       duration: '3 分鐘（約 750 字）', thanks: '衛生福利部 次長\n各位產業先進\n與會貴賓',
@@ -106,12 +115,11 @@ const AI_DESIGN_FORM_ = {
     { name: 'colors', label: '主色', type: 'multi', options: ['深藍', '暖金', '綠色', '橘色', '紅色', '紫色', '灰黑', '白色', '依主辦單位 CI'] },
     { name: 'elements', label: '想出現的元素', type: 'textarea', placeholder: '例如：台灣意象、腎臟抽象線條、城市天際線' },
     { name: 'avoid', label: '要避免的', type: 'textarea', placeholder: '例如：電路板紋路、過度光暈、人物臉部特寫' },
-    { name: 'tool', label: '要貼到哪個 AI 生圖工具', type: 'select', required: true, options: ['Midjourney', 'ChatGPT（GPT 生圖）', 'Gemini', 'Canva AI', '通用'] },
   ],
   template: {
     event_name: '2027 台灣早期慢性腎臟病照護國際論壇', organizer: '台灣腎臟醫學會', usage: '主視覺 KV', ratio: '16:9 橫式', field: '醫療健康',
     theme: '早期發現、早期守護：串連國際專家，讓腎臟照護走在病程前面', styles: ['沉穩專業', '溫暖人文', '國際大氣'], colors: ['深藍', '暖金'],
-    elements: '抽象的腎臟輪廓化為守護的雙手、晨光、台灣島形', avoid: '醫院走廊照片、針筒、電路板紋路、過度光暈', tool: 'Midjourney',
+    elements: '抽象的腎臟輪廓化為守護的雙手、晨光、台灣島形', avoid: '醫院走廊照片、針筒、電路板紋路、過度光暈',
   },
 };
 
@@ -119,6 +127,7 @@ const AI_DESIGN_FORM_ = {
 function aiFormsForClient_() {
   return {
     docs: Object.keys(AI_DOC_KINDS).map(k => ({ kind: k, label: AI_DOC_KINDS[k].label, needsProject: !!AI_DOC_FORMS_[k].needsProject,
+      research: !!AI_DOC_FORMS_[k].research,
       fields: AI_DOC_FORMS_[k].fields, template: AI_DOC_FORMS_[k].template })),
     design: AI_DESIGN_FORM_,
   };
