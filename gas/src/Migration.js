@@ -14,8 +14,9 @@ const MIGRATION_SOURCES_ = {
   tracker: { label: '活動進度追蹤表', id: '1Fckp1WwVp8WM7d3tuu-yNyXviDVBn1zr0huhHiJTAP8' },
   resource: { label: '物資系統', id: '1k6Hq11F4LUt73e2fSIi1iV4RhHQmFg36N-2TQ3H-S74' },
   eventops: { label: '活動與任務追蹤（event-ops）', id: '1ys8mvLU44otmToYvjPrAaPWciiRCY_Vpq2reJxQADzM' },
-  attendance: { label: '公司同仁出勤', prop: 'OLD_ATTENDANCE_SHEET_ID' },
-  crm: { label: '客戶與供應商管理（CRM）', prop: 'OLD_CRM_SHEET_ID' },
+  // 出勤、CRM 已在雲端硬碟找到；Script Properties 有填就以屬性為準。
+  attendance: { label: '公司同仁出勤', prop: 'OLD_ATTENDANCE_SHEET_ID', id: '1ClgEtJGbR02L5gMGUx6PGqOz9B2jlWDHtn4xHTFmf5U' },
+  crm: { label: '客戶與供應商管理（CRM）', prop: 'OLD_CRM_SHEET_ID', id: '1IUEnDVRdyJY8hCI4X4TdHGWCNffVdHG8XxiKG3PYvH0' },
 };
 
 function migrateDryRun() {
@@ -55,6 +56,42 @@ function runMigration_(dry) {
   return m.report;
 }
 
+function migrationSourceId_(key) {
+  const src = MIGRATION_SOURCES_[key];
+  return (src.prop && PropertiesService.getScriptProperties().getProperty(src.prop)) || src.id || null;
+}
+
+/**
+ * 從網頁「系統設定 → 搬舊資料」執行（只有 admin）。新系統還沒有人員時先自動從帳號中心同步，
+ * 舊資料的負責人才對得上帳號。
+ */
+const MigrationService = {
+  status() {
+    return {
+      people: repo_('people').findAll().length,
+      sources: Object.keys(MIGRATION_SOURCES_).map(key => {
+        const id = migrationSourceId_(key);
+        return { key, label: MIGRATION_SOURCES_[key].label, id, url: id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : null };
+      }),
+    };
+  },
+
+  run(dry, ctx) {
+    let synced = null;
+    if (!repo_('people').findAll().length) synced = PeopleService.syncFromAccountCenter(ctx);
+    const report = runMigration_(!!dry);
+    return { dry: !!dry, synced, report, text: formatMigrationReport_(report) };
+  },
+};
+
+function migrationRoutes_() {
+  const admin = [ROLES.ADMIN];
+  return {
+    'migration.status': { roles: admin, handler: () => MigrationService.status() },
+    'migration.run': { roles: admin, handler: (p, ctx) => MigrationService.run(p.dry !== false, ctx) },
+  };
+}
+
 class MigrationContext_ {
   constructor(dry, people) {
     this.dry = dry;
@@ -80,7 +117,7 @@ class MigrationContext_ {
 
   open(key) {
     const src = MIGRATION_SOURCES_[key];
-    const id = src.id || PropertiesService.getScriptProperties().getProperty(src.prop);
+    const id = migrationSourceId_(key);
     if (!id) return null;
     return SpreadsheetApp.openById(id);
   }

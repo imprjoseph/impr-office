@@ -6,8 +6,9 @@ export default function Admin() {
   const [tab, setTab] = useState("settings");
   return (
     <>
-      <Tabs tabs={[["settings", "設定值"], ["templates", "工作範本"], ["holidays", "假日"], ["devices", "打卡設備"], ["audit", "稽核紀錄"], ["ai", "AI 用量"]]} value={tab} onChange={setTab} />
+      <Tabs tabs={[["settings", "設定值"], ["migrate", "搬舊資料"], ["templates", "工作範本"], ["holidays", "假日"], ["devices", "打卡設備"], ["audit", "稽核紀錄"], ["ai", "AI 用量"]]} value={tab} onChange={setTab} />
       {tab === "settings" && <Settings />}
+      {tab === "migrate" && <Migrate />}
       {tab === "templates" && <CrudPage title="工作範本（T-60）" sub="新專案或標案得標時，依活動日期自動產生這些工作；offset 以活動日為 T 日，T-60 填 -60。" prefix="template" canWrite fields={[
         { name: "category", label: "工作分類", required: true }, { name: "title", label: "標準工作項目", required: true, full: true },
         { name: "offset_days", label: "期限（T 日加減天數）", type: "number", required: true }, { name: "priority", label: "重要性", type: "select", options: ["關鍵", "高", "中", "低"] },
@@ -64,6 +65,47 @@ function AiUsage() {
     <Page title="AI 用量">
       <Loading error={error} loading={loading && !data} />
       {data && <p>{data.month}：{data.jobs} 次，共 {data.tokens.toLocaleString()} tokens（上限 {data.limit.toLocaleString()}）。</p>}
+    </Page>
+  );
+}
+
+/** 搬舊資料：先試跑看報告，確認後正式搬。可重複執行，已搬過的會略過。 */
+function Migrate() {
+  const { data, error, loading, reload } = useLoad<any>("migration.status");
+  const [result, setResult] = useState<any | null>(null);
+  const { busy, run } = useAction();
+  const go = async (dry: boolean) => {
+    if (!dry && !confirm("確定要把舊資料正式寫進新系統？（已搬過的會自動略過，不會重複）")) return;
+    setResult(null);
+    const r = await run(() => call<any>("migration.run", { dry }), dry ? "試跑完成" : "搬資料完成");
+    if (r) { setResult(r); reload(); }
+  };
+  return (
+    <Page title="搬舊資料" sub="從舊系統的試算表讀資料寫進新系統。先按「試跑」看會搬多少、哪些人名對不上；確認後再按「正式搬」。可以重複執行，已經搬過的會略過。">
+      <Loading error={error} loading={loading && !data} />
+      {data && (
+        <section className="card">
+          <h2>資料來源</h2>
+          <ul className="list">
+            {data.sources.map((s: any) => (
+              <li key={s.key}>{s.url ? <a href={s.url} target="_blank" rel="noreferrer"><b>{s.label}</b><span className="meta">開啟原試算表 ↗</span></a>
+                : <a><b>{s.label}</b><span className="meta red">未設定試算表</span></a>}</li>
+            ))}
+          </ul>
+          <p className="muted small">新系統目前有 {data.people} 位人員{data.people ? "" : "；執行時會先自動從帳號中心同步人員，舊資料的負責人才對得上"}。</p>
+          <div className="page-actions">
+            <button className="btn" disabled={busy} onClick={() => go(true)}>{busy ? "執行中…（可能要 1–3 分鐘）" : "試跑（不寫入）"}</button>
+            <button className="btn primary" disabled={busy} onClick={() => go(false)}>正式搬</button>
+          </div>
+        </section>
+      )}
+      {result && (
+        <section className="card">
+          <h2>{result.dry ? "試跑結果（尚未寫入）" : "搬資料結果"}</h2>
+          {result.synced && <p className="muted small">已先從帳號中心同步人員。</p>}
+          <pre className="doc">{result.text}</pre>
+        </section>
+      )}
     </Page>
   );
 }

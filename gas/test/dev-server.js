@@ -44,6 +44,14 @@ call('hazel', 'tender.create', { record: { title: '2027 防詐宣導整合行銷
 call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: b.id, start_date: day(0), end_date: day(21), role: '報到台' } });
 const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', quantity: 8, unit: '支', location: '倉庫 A' } });
 call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2, project_id: a.id, due_date: day(6) } });
+// 政府標案資料庫（示範幾筆）
+const gov = env.addSpreadsheet('1vKY27NlrPMpUOyq5mqSWgGRiJSHxaB-eDAJEr49mMVk').insertSheet('符合案件');
+gov.data = [['主鍵', '公告日', '機關', '案名', '預算', '截止投標', '公告類型', '案號', '關鍵字群組', '命中關鍵字', '分數', '連結', '首次收錄', '狀態', '負責人', '是否投標', '備註'],
+  ['k1', day(-1), '客家委員會客家文化發展中心', '「2027客家飲食研究文化沙龍暨國際研討會」委託專業服務案', '1,480,000', day(4), '公開取得報價單或企劃書公告', '115086', '國際會議論壇/AI推薦0.99', '國際研討會、研討會', 30, '開啟', '', '', '', '', ''],
+  ['k2', day(-1), '臺北市政府資訊局', '2027智慧城市成果展示執行委託服務案', '5,300,000', day(12), '經公開評選或公開徵求之限制性招標公告', '11603', '活動執行/AI推薦1.00', '成果展', 18, '開啟', '', '', '', '', ''],
+  ['k3', day(-2), '衛生福利部國民健康署', '116年社群媒體維運計畫', '5,200,000', day(2), '經公開評選或公開徵求之限制性招標公告', 'M1151101', '宣導行銷', '媒體、社群', 8, '開啟', '', '評估中', 'Amy', '', ''],
+  ['k4', day(-30), '屏東縣政府', '屏東文學館本土語言展覽設計與執行', '700,000', day(-5), '公開取得報價單或企劃書公告', 'B093', '活動執行', '展覽', 4, '開啟', '', '', '', '', '']];
+gov.formulas['2,12'] = '=HYPERLINK("https://web.pcc.gov.tw/","開啟")';
 console.log('示範資料已建立');
 
 const DEMO_ACCOUNTS = ['boss', 'hazel', 'amy', 'mgr', 'acc', 'pt1'];

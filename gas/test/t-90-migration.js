@@ -15,6 +15,9 @@ module.exports = (test, { assert }) => {
     ev.insertSheet('tenders').data = [['id', 'title', 'agency', 'owner_email', 'status', 'is_deleted'], ['t1', '防詐宣導', '電信協會', 'hazel@impr.com.tw', 'won', false]];
     const res = env.addSpreadsheet('1k6Hq11F4LUt73e2fSIi1iV4RhHQmFg36N-2TQ3H-S74');
     res.insertSheet('inventory').data = [['id', 'name', 'category', 'manager', 'quantity', 'location'], ['i1', '無線麥克風', '音響', 'Amy', 8, '倉庫']];
+    // 出勤、CRM 有預設試算表 ID；測試給空表，代表舊表沒有資料。
+    env.addSpreadsheet('1ClgEtJGbR02L5gMGUx6PGqOz9B2jlWDHtn4xHTFmf5U');
+    env.addSpreadsheet('1IUEnDVRdyJY8hCI4X4TdHGWCNffVdHG8XxiKG3PYvH0');
     res.insertSheet('personnel').data = [['id', 'name', 'area', 'hourlyRate', 'email'], ['p1', '工讀小陳', '台北', 190, '']];
   }
 
