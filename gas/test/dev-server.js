@@ -52,6 +52,17 @@ gov.data = [['主鍵', '公告日', '機關', '案名', '預算', '截止投標'
   ['k3', day(-2), '衛生福利部國民健康署', '116年社群媒體維運計畫', '5,200,000', day(2), '經公開評選或公開徵求之限制性招標公告', 'M1151101', '宣導行銷', '媒體、社群', 8, '開啟', '', '評估中', 'Amy', '', ''],
   ['k4', day(-30), '屏東縣政府', '屏東文學館本土語言展覽設計與執行', '700,000', day(-5), '公開取得報價單或企劃書公告', 'B093', '活動執行', '展覽', 4, '開啟', '', '', '', '', '']];
 gov.formulas['2,12'] = '=HYPERLINK("https://web.pcc.gov.tw/","開啟")';
+// 本機預覽不連真的 AI：文件回一段示範文字，設計回示範提示詞。
+env.properties.ANTHROPIC_API_KEY = 'dev';
+env.aiHandler = body => {
+  const text = /只輸出 JSON/.test(body.system)
+    ? JSON.stringify({ headline: '早期守護', subheadline: '2027 台灣早期 CKD 國際論壇', copy: '串連國際專家，讓腎臟照護走在病程前面。', concept: '以晨光中的雙手托起抽象腎形，象徵早期守護。',
+      prompt: 'Two gentle hands cradling an abstract kidney-shaped form made of soft dawn light, deep navy and warm gold palette, Taiwan island silhouette subtly in the horizon, calm premium medical conference key visual, editorial photography style --ar 16:9 --style raw --v 7 --no text, letters, logos',
+      prompt_zh: '晨光中的雙手托著抽象腎形，深藍與暖金，地平線隱約台灣島形。', negative: 'text, letters, logos, syringes, hospital corridor, circuit patterns, lens flare',
+      variations: ['Minimal line-art kidney formed by a sunrise path across Taiwan, navy and gold, generous negative space --ar 16:9 --style raw --v 7', 'Warm gold sunrise over layered navy hills shaped like a kidney, calm and hopeful --ar 16:9 --style raw --v 7'] })
+    : '# 示範初稿\n\n本機預覽不連真的 AI，這是示範文字。\n\n' + body.messages[0].content;
+  return { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text }], usage: { input_tokens: 100, output_tokens: 50 } };
+};
 console.log('示範資料已建立');
 
 const DEMO_ACCOUNTS = ['boss', 'hazel', 'amy', 'mgr', 'acc', 'pt1'];
