@@ -1,0 +1,166 @@
+/**
+ * 資料模型：imPR 公司系統的全部資料表。一份試算表、一張表一個分頁。
+ *
+ * 欄位寫成 'name:type!' 字串：! 代表必填，型別省略就是 text。用短寫法是因為表很多，
+ * 物件寫法會讓整份 schema 長到看不出每張表有哪些欄位。
+ *
+ * 型別決定讀寫轉換（見 Repository.js）：
+ * - text / date / datetime 在 Sheet 上設成純文字格式，否則 Sheets 會把日期、ISO 時間自動轉成 Date，
+ *   讀回來不等於原字串，樂觀鎖比對 updated_at 就會永遠失敗；電話也會被吃掉開頭的 0。
+ * - date 存 yyyy-MM-dd，datetime 存 ISO 8601（UTC）。
+ */
+
+const COLUMN_TYPES = {
+  TEXT: 'text',
+  DATE: 'date',
+  DATETIME: 'datetime',
+  NUMBER: 'number',
+  BOOL: 'bool',
+};
+
+const TEXT_FORMAT_TYPES_ = [COLUMN_TYPES.TEXT, COLUMN_TYPES.DATE, COLUMN_TYPES.DATETIME];
+
+// 這些欄位只能由 Repository 寫入，呼叫端傳進來就拒絕，免得有人以為自己能改 id 或稽核欄位。
+const SYSTEM_COLUMNS = ['id', 'created_at', 'created_by', 'updated_at', 'updated_by', 'is_deleted'];
+
+const AUDIT_COLUMNS_ = [
+  { name: 'created_at', type: COLUMN_TYPES.DATETIME },
+  { name: 'created_by', type: COLUMN_TYPES.TEXT },
+  { name: 'updated_at', type: COLUMN_TYPES.DATETIME },
+  { name: 'updated_by', type: COLUMN_TYPES.TEXT },
+  { name: 'is_deleted', type: COLUMN_TYPES.BOOL },
+];
+
+const TYPE_ALIASES_ = { text: 'text', date: 'date', dt: 'datetime', num: 'number', bool: 'bool' };
+
+function cols_(spec) {
+  return spec.split(',').map(s => s.trim()).filter(Boolean).map(s => {
+    const required = s.endsWith('!');
+    const [name, t] = (required ? s.slice(0, -1) : s).split(':');
+    const type = TYPE_ALIASES_[t || 'text'];
+    if (!type) throw new Error('未知的欄位型別：' + s);
+    return required ? { name, type, required: true } : { name, type };
+  });
+}
+
+/**
+ * cache: true 只給很少變動的主資料（供應商、範本、假日、設定）。
+ * 交易資料不快取：檔期衝突、預算數字、打卡讀到舊值會直接造成業務事故。
+ */
+const TABLES = {
+  // ---- 人員與往來對象 ----
+  // 帳號、密碼、角色在帳號中心；這裡是人事資料，account 對應帳號中心，派遣人員的時薪、合約也在這裡。
+  people: { prefix: 'per', cache: true, columns: cols_(
+    'account!, name!, email, dept, manager_account, kind!, phone, hourly_wage:num, region, ' +
+    'contract_start:date, contract_end:date, rating:num, active:bool, note') },
+  clients: { prefix: 'cli', cache: true, columns: cols_(
+    'name!, tax_id, industry, address, phone, website, owner_account, tags, note') },
+  contacts: { prefix: 'con', cache: false, columns: cols_(
+    'client_id, supplier_id, name!, title, phone, email, note') },
+  client_activities: { prefix: 'cac', cache: false, columns: cols_(
+    'client_id!, project_id, activity_date:date!, kind, summary!, owner_account') },
+  suppliers: { prefix: 'sup', cache: true, columns: cols_(
+    'name!, category, service_items, tax_id, contact_name, contact_phone, contact_email, note, ' +
+    'avg_rating:num, rating_count:num') },
+  supplier_bookings: { prefix: 'bkg', cache: false, columns: cols_(
+    'supplier_id!, project_id!, start_date:date!, end_date:date!, status!, note') },
+  supplier_ratings: { prefix: 'srt', cache: false, columns: cols_(
+    'supplier_id!, project_id!, score:num!, comment') },
+
+  // ---- 標案與專案 ----
+  tenders: { prefix: 'tnd', cache: false, columns: cols_(
+    'title!, agency!, tender_no, source_url, budget_amount:num, announce_date:date, deadline_date:date, ' +
+    'opening_date:date, owner_account, status!, decision_note, bid_bond:num, documents, bid_amount:num, ' +
+    'award_amount:num, competitors, result_note, project_id') },
+  // code 沿用活動總表的 EVT-年度-流水號，同仁已經習慣用它溝通。
+  projects: { prefix: 'prj', cache: false, columns: cols_(
+    'code!, name!, client_id, client_name, project_type, venue, start_date:date, end_date:date, ' +
+    'pm_account, stage!, tender_id, contract_amount:num, margin_threshold:num, margin_alert:bool, ' +
+    'quote_total:num, cost_estimate_total:num, cost_actual_total:num, margin_rate:num, ' +
+    'drive_folder_url, success_notes, improve_notes') },
+  // 欄位對應追蹤表「工作進度」：每天只需更新狀態、最新進度、下一步、卡關原因。
+  project_tasks: { prefix: 'tsk', cache: false, columns: cols_(
+    'project_id!, code, category, title!, owner_account, assistant_account, start_date:date, due_date:date, ' +
+    'priority, status!, progress_note, next_step, blocker, waiting_on, last_update_at:dt, done_at:dt, ' +
+    'meeting_id, note') },
+  // offset_days 以活動日為 T 日，T-60 存 -60。
+  task_templates: { prefix: 'tpl', cache: true, columns: cols_(
+    'category!, title!, offset_days:num!, priority, role, done_criteria, tip, sort:num') },
+  meetings: { prefix: 'mtg', cache: false, columns: cols_(
+    'project_id, title!, meeting_date:date!, attendees, notes') },
+
+  // ---- 預算、毛利、費用 ----
+  budget_lines: { prefix: 'bdl', cache: false, columns: cols_(
+    'project_id!, category!, item!, quote_amount:num, cost_estimate:num, cost_actual:num, supplier_id, ' +
+    'source, note') },
+  project_changes: { prefix: 'chg', cache: false, columns: cols_(
+    'project_id!, kind!, description!, quote_delta:num, cost_delta:num, change_date:date, note') },
+  expense_claims: { prefix: 'exp', cache: false, columns: cols_(
+    'claimant_account!, project_id, budget_line_id, dept, category!, description!, amount:num!, ' +
+    'receipt_date:date, receipt_no, receipt_url, payee, supplier_id, status!, submitted_at:dt, ' +
+    'approver_account, approved_at:dt, review_note, paid_by, paid_at:dt, pay_note') },
+
+  // ---- 考勤 ----
+  // punch：IN 上班 / OUT 下班；punch_time 是台北時間 HH:mm:ss，遲到早退以它判斷。
+  attendance: { prefix: 'att', cache: false, columns: cols_(
+    'account!, work_date:date!, punch!, punch_time!, mode!, ip, device_key, location, lat:num, lng:num, ' +
+    'reason, project_id, status!, flag, over_min:num, reviewer_account, review_note, reviewed_at:dt') },
+  leaves: { prefix: 'lev', cache: false, columns: cols_(
+    'account!, leave_type!, start_date:date!, start_time!, end_date:date!, end_time!, hours:num, reason!, status!, ' +
+    'approver_account, review_note, reviewed_at:dt') },
+  overtime: { prefix: 'ovt', cache: false, columns: cols_(
+    'account!, work_date:date!, plan_start!, plan_end!, reason!, project_id, status!, approver_account, ' +
+    'review_note, reviewed_at:dt, actual_hours:num') },
+  corrections: { prefix: 'cor', cache: false, columns: cols_(
+    'account!, work_date:date!, punch!, request_time!, reason!, status!, approver_account, ' +
+    'review_note, reviewed_at:dt') },
+  // kind：HOLIDAY 放假、WORKDAY 補班；沒列的日子依週一至週五判斷。
+  holidays: { prefix: 'hol', cache: true, columns: cols_('holiday_date:date!, name!, kind!') },
+  devices: { prefix: 'dev', cache: true, columns: cols_('device_key!, name, registered_by, active:bool') },
+
+  // ---- 派遣 ----
+  dispatch_assignments: { prefix: 'dsp', cache: false, columns: cols_(
+    'account!, project_id!, start_date:date!, end_date:date!, role, hourly_wage:num, status!, note') },
+  dispatch_reports: { prefix: 'dsr', cache: false, columns: cols_(
+    'account!, project_id, report_date:date!, content!, hours:num') },
+  dispatch_issues: { prefix: 'dsi', cache: false, columns: cols_(
+    'account!, project_id, title!, detail, status!, reply') },
+
+  // ---- 工時 ----
+  timesheets: { prefix: 'tms', cache: false, columns: cols_(
+    'account!, week_start:date!, project_id, hours:num!, overtime_reason, blocker') },
+
+  // ---- 資材與知識 ----
+  inventory: { prefix: 'inv', cache: false, columns: cols_(
+    'name!, category, quantity:num, unit, location, manager_account, photo_url, note') },
+  loans: { prefix: 'lon', cache: false, columns: cols_(
+    'inventory_id!, borrower_account!, project_id, quantity:num!, loan_date:date!, due_date:date, ' +
+    'returned_at:dt, status!, note') },
+  sops: { prefix: 'sop', cache: false, columns: cols_(
+    'title!, category, version, effective_date:date, status!, file_url, project_types, note') },
+  media: { prefix: 'med', cache: false, columns: cols_(
+    'outlet!, name, title, beat, phone, email, note') },
+  cases: { prefix: 'cas', cache: false, columns: cols_(
+    'title!, client_name, year, category, summary, link, project_id') },
+  // 帳密大全：只有 admin 讀得到（見 ResourceService）。
+  credentials: { prefix: 'crd', cache: false, columns: cols_(
+    'service!, url, username, password, owner, note') },
+
+  // ---- AI 與系統 ----
+  ai_jobs: { prefix: 'aij', cache: false, columns: cols_(
+    'kind!, project_id, prompt, output, output_url, model, input_tokens:num, output_tokens:num, status!, error') },
+  reminder_log: { prefix: 'rmd', cache: false, columns: cols_(
+    'account!, ref_id, reason, sent_on:date!') },
+  audit_log: { prefix: 'aud', cache: false, columns: cols_('action!, entity, entity_id, detail') },
+  settings: { prefix: 'set', cache: true, columns: cols_('key!, value, note') },
+};
+
+// 分頁名稱就是表名；集中在這裡設定，避免 Repository 和 Setup 各自猜。
+Object.keys(TABLES).forEach(name => { TABLES[name].sheet = name; });
+
+// 欄位順序：id、業務欄位、稽核欄位。實際讀寫依表頭名稱對應，手動調整欄位順序不會壞。
+function tableColumns_(def) {
+  return [{ name: 'id', type: COLUMN_TYPES.TEXT, required: true }]
+    .concat(def.columns)
+    .concat(AUDIT_COLUMNS_);
+}
