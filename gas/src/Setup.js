@@ -18,7 +18,7 @@ const DEFAULT_SETTINGS_ = [
   ['ot_unit_hours', '0.5', '加班時數計算單位（小時，無條件捨去）'],
   ['office_ips', '', '辦公室對外 IP，多個用逗號分隔；IP 與登記設備都符合才算辦公室打卡'],
   ['ai_monthly_token_limit', '2000000', 'AI 每月 token 用量上限，超過就暫停 AI 功能'],
-  ['gemini_image_model', 'gemini-2.5-flash-image', 'AI 平面設計用的 Gemini 生圖模型名稱；Google 推出新版時改這裡'],
+  ['openai_image_model', 'gpt-image-1', 'AI 平面設計用的 OpenAI GPT 生圖模型名稱；OpenAI 推出新版時改這裡'],
 ];
 
 /**

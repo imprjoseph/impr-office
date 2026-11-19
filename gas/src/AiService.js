@@ -1,7 +1,7 @@
 /**
  * AI：文件產出（新聞稿、致詞稿、建議書初稿、結案報告）、每日待辦摘要與主管週報、AI 平面設計。
  *
- * 金鑰放在 Script Properties（ANTHROPIC_API_KEY、GEMINI_API_KEY），由管理者自己貼，不進程式碼、不進試算表。
+ * 金鑰放在 Script Properties（ANTHROPIC_API_KEY、OPENAI_API_KEY），由管理者自己貼，不進程式碼、不進試算表。
  * 每次呼叫都記進 ai_jobs（誰、做什麼、用了多少 token）；當月用量超過設定上限就暫停，避免帳單失控。
  * 沒設金鑰時每日提醒照常寄送，只是不經 AI 整理。
  */
@@ -38,7 +38,7 @@ const AiService = {
   },
 
   /**
-   * AI 平面設計：Claude 寫主標、副標、文案與畫面描述，Gemini 依描述生成底圖（不含文字，字由版型套上）。
+   * AI 平面設計：Claude 寫主標、副標、文案與畫面描述，OpenAI GPT 依描述生成底圖（不含文字，字由版型套上）。
    * 圖片直接回傳給前端下載，不存試算表：一張圖的 base64 就超過儲存格上限。
    */
   design(input, ctx) {
@@ -153,30 +153,42 @@ function saveAsGoogleDoc_(title, markdown) {
   return doc.getUrl();
 }
 
-/** Gemini 生圖。模型名稱放設定（gemini_image_model），Google 換版本時改設定就好。 */
+/**
+ * OpenAI GPT 生圖（Images API）。模型名稱放設定（openai_image_model），OpenAI 換版本時改設定就好。
+ * GPT 生圖只支援橫、方、直三種尺寸，依前端選的比例挑最接近的一種。
+ */
 function generateImage_(prompt, size, ctx, projectId) {
-  const key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-  if (!key) throw new AppError(ERROR_CODES.VALIDATION, '尚未設定 Gemini API 金鑰，請管理者在指令碼屬性加上 GEMINI_API_KEY');
-  const model = setting_('gemini_image_model');
-  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+  const key = PropertiesService.getScriptProperties().getProperty('OPENAI_API_KEY');
+  if (!key) throw new AppError(ERROR_CODES.VALIDATION, '尚未設定 OpenAI API 金鑰，請管理者在指令碼屬性加上 OPENAI_API_KEY');
+  assertAiQuota_();
+  const model = setting_('openai_image_model');
   let res;
   try {
-    res = UrlFetchApp.fetch(url, {
-      method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, muteHttpExceptions: true,
-      payload: JSON.stringify({ contents: [{ parts: [{ text: prompt + '\nAspect: ' + (size || '16:9') + '. No text, no letters, no logos.' }] }],
-        generationConfig: { responseModalities: ['IMAGE'] } }),
+    res = UrlFetchApp.fetch('https://api.openai.com/v1/images/generations', {
+      method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + key }, muteHttpExceptions: true,
+      payload: JSON.stringify({ model, prompt: prompt + '\nNo text, no letters, no logos.', size: openAiImageSize_(size), n: 1 }),
     });
   } catch (e) {
     throw new AppError(ERROR_CODES.VALIDATION, '生圖服務連線失敗，請稍後再試');
   }
-  const json = JSON.parse(res.getContentText());
-  const parts = (((json.candidates || [])[0] || {}).content || {}).parts || [];
-  const img = parts.find(p => p.inlineData || p.inline_data);
+  let json;
+  try { json = JSON.parse(res.getContentText()); } catch (e) { json = {}; }
+  const img = ((json.data || [])[0] || {}).b64_json;
+  const usage = json.usage || {};
+  const errMsg = json.error ? json.error.message : '沒有產生圖片';
   recordAiJob_({ kind: 'design.image', project_id: projectId, prompt: String(prompt).slice(0, 4000), model, status: img ? 'done' : 'error',
-    error: img ? null : (json.error ? json.error.message : '沒有產生圖片') }, ctx);
+    input_tokens: usage.input_tokens || 0, output_tokens: usage.output_tokens || 0, error: img ? null : errMsg }, ctx);
   if (!img) throw new AppError(ERROR_CODES.VALIDATION, '生圖失敗：' + (json.error ? json.error.message : '沒有產生圖片，請調整描述再試'));
-  const data = img.inlineData || img.inline_data;
-  return { mimeType: data.mimeType || data.mime_type, base64: data.data };
+  return { mimeType: 'image/png', base64: img };
+}
+
+/** 比例（16:9、1:1、4:5…）或像素（1920x1080）換成 GPT 生圖支援的尺寸。 */
+function openAiImageSize_(size) {
+  const m = String(size || '16:9').match(/(\d+)\s*[:x×]\s*(\d+)/);
+  const ratio = m ? Number(m[1]) / Number(m[2]) : 16 / 9;
+  if (ratio > 1.15) return '1536x1024';
+  if (ratio < 0.87) return '1024x1536';
+  return '1024x1024';
 }
 
 // ---------------- 每日提醒與主管週報 ----------------

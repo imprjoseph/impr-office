@@ -53,4 +53,34 @@ module.exports = (test, { assert }) => {
     assert.doesNotMatch(mails[0].body, /還早/);
     assert.strictEqual(app.runDailyReminders().sent, 0);
   });
+  test('[AI] 平面設計：Claude 寫文案、OpenAI GPT 生圖，尺寸依比例換算並記用量', (env) => {
+    const { call, properties, aiCalls } = env;
+    properties.ANTHROPIC_API_KEY = 'test-key';
+    const plan = { headline: '主標', subheadline: '副標', copy: '文案', concept: '概念', image_prompt: 'calm harbor at dawn' };
+    env.aiHandler = (body, url) => /openai/.test(url)
+      ? { data: [{ b64_json: 'iVBORw0KGgo=' }], usage: { input_tokens: 30, output_tokens: 4000 } }
+      : { type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: JSON.stringify(plan) }], usage: { input_tokens: 100, output_tokens: 50 } };
+    assert.throws(() => call('hazel', 'ai.design', { title: '年會', size: '9:16' }), e => /OPENAI_API_KEY/.test(e.message));
+    properties.OPENAI_API_KEY = 'sk-test';
+    const r = call('hazel', 'ai.design', { title: '年會', size: '9:16' });
+    assert.strictEqual(r.plan.headline, '主標');
+    assert.deepStrictEqual(r.image, { mimeType: 'image/png', base64: 'iVBORw0KGgo=' });
+    const img = aiCalls.find(c => /api\.openai\.com\/v1\/images\/generations/.test(c.url));
+    assert.ok(img, '有呼叫 OpenAI 生圖');
+    assert.strictEqual(img.headers.Authorization, 'Bearer sk-test');
+    assert.strictEqual(img.body.model, 'gpt-image-1');
+    assert.strictEqual(img.body.size, '1024x1536');
+    assert.match(img.body.prompt, /calm harbor/);
+    assert.ok(!aiCalls.some(c => /googleapis/.test(c.url)), '不再呼叫 Gemini');
+    const usage = call('boss', 'ai.usage', {});
+    assert.strictEqual(usage.tokens, 300 + 4030);
+  });
+
+  test('[AI] GPT 生圖尺寸換算', ({ app }) => {
+    assert.strictEqual(app.openAiImageSize_('16:9'), '1536x1024');
+    assert.strictEqual(app.openAiImageSize_('1:1'), '1024x1024');
+    assert.strictEqual(app.openAiImageSize_('4:5'), '1024x1536');
+    assert.strictEqual(app.openAiImageSize_('3:4'), '1024x1536');
+    assert.strictEqual(app.openAiImageSize_('1920x1080'), '1536x1024');
+  });
 };

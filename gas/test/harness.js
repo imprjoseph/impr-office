@@ -36,7 +36,7 @@ function load() {
   env.aiHandler = body => ({ type: 'message', stop_reason: 'end_turn', content: [{ type: 'text', text: '# 標題\n內文' }], usage: { input_tokens: 100, output_tokens: 50 } });
   env.urlFetchHandler = (url, opts) => {
     const body = JSON.parse(opts.payload);
-    if (/anthropic\.com|googleapis\.com/.test(url)) {
+    if (/anthropic\.com|openai\.com/.test(url)) {
       env.aiCalls.push({ url, headers: opts.headers, body });
       return env.aiHandler(body, url);
     }
