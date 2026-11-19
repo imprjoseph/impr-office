@@ -46,6 +46,21 @@ const item = call('hazel', 'inventory.create', { record: { name: '無線麥克�
 call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2, project_id: a.id, due_date: day(6) } });
 console.log('示範資料已建立');
 
+const DEMO_ACCOUNTS = ['boss', 'hazel', 'amy', 'mgr', 'acc', 'pt1'];
+const fakeToken_ = sub => Buffer.from(JSON.stringify({ sub, exp: Math.floor(Date.now() / 1000) + 8 * 3600 })).toString('base64') + '.dev';
+function fakeAuth_(b) {
+  const subOf = t => { try { return JSON.parse(Buffer.from(String(t).split('.')[0], 'base64').toString()).sub; } catch (e) { return null; } };
+  if (b.action === 'login') {
+    if (!DEMO_ACCOUNTS.includes(b.account) || b.password !== 'demo') return { ok: false, error: { code: 'LOGIN', message: '帳號或密碼錯誤' } };
+    return { ok: true, data: { token: fakeToken_(b.account) } };
+  }
+  if (b.action === 'changePassword') {
+    if (b.oldPassword !== 'demo') return { ok: false, error: { code: 'VALIDATION', message: '目前密碼不正確' } };
+    return { ok: true, data: { token: fakeToken_(subOf(b.token)) } };
+  }
+  return { ok: false, error: { code: 'VALIDATION', message: 'unsupported' } };
+}
+
 const port = Number(process.argv[2] || 8795);
 http.createServer((req, res) => {
   const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'content-type' };
@@ -53,6 +68,11 @@ http.createServer((req, res) => {
   let body = '';
   req.on('data', c => { body += c; });
   req.on('end', () => {
+    // /auth 模擬帳號中心：示範帳號（boss、hazel、amy、mgr、acc、pt1）密碼都是 demo。
+    if (req.url.startsWith('/auth')) {
+      res.writeHead(200, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, cors));
+      return res.end(JSON.stringify(fakeAuth_(JSON.parse(body || '{}'))));
+    }
     const out = req.method === 'POST' ? app.doPost({ postData: { contents: body } }).text : app.doGet().text;
     res.writeHead(200, Object.assign({ 'Content-Type': 'application/json; charset=utf-8' }, cors));
     res.end(out);

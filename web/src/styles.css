@@ -36,6 +36,15 @@ h3 { font-size: .98rem; margin: 22px 0 8px; }
 .who { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .who small { font-weight: 400; color: var(--muted); background: var(--bg); border-radius: 99px; padding: 1px 8px; }
 main { padding: 22px 24px 60px; max-width: 1280px; }
+.login-bg { min-height: 100vh; display: grid; place-items: center; padding: 20px; background: linear-gradient(160deg, var(--brand) 0%, var(--brand-2) 55%, #3b7d62 100%); }
+.login-card { background: var(--card); border-radius: 14px; padding: 30px 28px; width: min(380px, 100%); display: grid; gap: 14px; box-shadow: 0 18px 50px rgba(0,0,0,.25); }
+.login-card h1 { margin-top: 6px; }
+.login-card > p { margin: -8px 0 4px; }
+.login-card .field input, .login-form .field input { width: 100%; }
+.login-card .error, .login-form .error { margin: 0; }
+.login-form { display: grid; gap: 12px; }
+.login-form > p { margin: 0; }
+.ok-msg { color: var(--green); background: #e3f4ea; padding: 10px 14px; border-radius: var(--radius); margin: 0; }
 .boot { display: grid; place-items: center; min-height: 100vh; gap: 12px; text-align: center; }
 
 .page-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 16px; }

@@ -5,7 +5,8 @@
 import { useEffect, useState } from "react";
 import { BarChart3, Briefcase, Building2, CalendarClock, ClipboardList, FileText, Gavel, Home, KeyRound, LogOut, Menu, Package,
   Receipt, Settings, Sparkles, Truck, Users, UserRoundCog, X } from "lucide-react";
-import { call, goLogin, Me } from "./api";
+import { call, hasValidToken, LOGIN_EVENT, logout, Me } from "./api";
+import { Login, PasswordModal } from "./pages/Login";
 import { LookupProvider, ToastProvider, useLookups } from "./ui";
 import Dashboard from "./pages/Dashboard";
 import { ProjectDetail, ProjectList } from "./pages/Projects";
@@ -64,6 +65,7 @@ function Shell() {
   const { me } = useLookups();
   const [section, id] = useHash();
   const [open, setOpen] = useState(false);
+  const [pwd, setPwd] = useState(false);
   const allowed = (i: NavItem) => !i.roles || i.roles.includes(me.role);
   const route = section || "";
   const page = (() => {
@@ -115,8 +117,8 @@ function Shell() {
           })}
         </nav>
         <div className="nav-foot">
-          <a href="https://imprjoseph.github.io/total-system/portal/"><KeyRound size={16} aria-hidden /> 系統入口與改密碼</a>
-          <button className="linkish" onClick={() => goLogin()}><LogOut size={16} aria-hidden /> 登出</button>
+          <button className="linkish" onClick={() => { setOpen(false); setPwd(true); }}><KeyRound size={16} aria-hidden /> 變更密碼</button>
+          <button className="linkish" onClick={() => logout()}><LogOut size={16} aria-hidden /> 登出</button>
         </div>
       </aside>
       {open && <div className="nav-scrim" onClick={() => setOpen(false)} />}
@@ -128,6 +130,7 @@ function Shell() {
         </header>
         <main>{page}</main>
       </div>
+      {pwd && <PasswordModal onClose={() => setPwd(false)} />}
     </div>
   );
 }
@@ -135,10 +138,25 @@ function Shell() {
 export const ROLE_LABEL: Record<string, string> = { admin: "管理者", manager: "主管", accountant: "會計", staff: "同仁", dispatch: "派遣" };
 
 export default function App() {
+  const [needLogin, setNeedLogin] = useState(!hasValidToken());
   const [me, setMe] = useState<Me | null>(null);
   const [error, setError] = useState("");
-  useEffect(() => { call<Me>("session.me").then(setMe).catch(e => setError(e.message)); }, []);
-  if (error) return <div className="boot"><FileText size={28} /><p>{error}</p><a className="btn" href="https://imprjoseph.github.io/total-system/portal/">回到系統入口</a></div>;
+  // 任何 API 回「登入失效」或按登出，都會送出 LOGIN_EVENT，外框就換成登入畫面。
+  useEffect(() => {
+    const show = () => { setMe(null); setError(""); setNeedLogin(true); };
+    window.addEventListener(LOGIN_EVENT, show);
+    return () => window.removeEventListener(LOGIN_EVENT, show);
+  }, []);
+  useEffect(() => {
+    if (needLogin) return;
+    call<Me>("session.me").then(setMe).catch(e => { if (e.code !== "TOKEN") setError(e.message); });
+  }, [needLogin]);
+  if (needLogin) return <Login onDone={() => setNeedLogin(false)} />;
+  if (error) return (
+    <div className="boot"><FileText size={28} /><p>{error}</p>
+      <div className="page-actions"><button className="btn" onClick={() => location.reload()}>重新整理</button><button className="btn" onClick={() => logout()}>換個帳號登入</button></div>
+    </div>
+  );
   if (!me) return <div className="boot"><p className="muted">載入中…</p></div>;
   return (
     <ToastProvider>
