@@ -55,6 +55,7 @@ function applyDirectory_(users, actor) {
       dept: u.dept || null,
       manager_account: String(u.manager || '').toLowerCase() || null,
       kind: u.type === '派遣' ? '派遣' : '正職',
+      office_role: u.role || null,
       active: true,
     };
     const cur = existing[account];

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { call } from "../api";
-import { Loading, Modal, Page, RecordForm, Table, useAction, useLoad, useLookups } from "../ui";
+import { ROLE_LABEL } from "../App";
+import { Badge, Loading, Modal, Page, RecordForm, Table, useAction, useLoad, useLookups } from "../ui";
 
 export default function People() {
   const lk = useLookups();
@@ -19,7 +20,7 @@ export default function People() {
   };
   const rows = (data || []).filter(p => !kind || p.kind === kind);
   return (
-    <Page title="人員" sub="帳號、姓名、部門、主管在帳號中心維護，這裡同步過來；地區、合約等人事資料在這裡補。"
+    <Page title="人員" sub="帳號、姓名、部門、主管在帳號中心維護，主管開啟系統時自動同步；「未開通」的人要在帳號中心的 office 欄填角色才能登入。地區、合約等人事資料在這裡補。"
       actions={canEdit && <button className="btn" onClick={sync} disabled={busy}>從帳號中心同步</button>}>
       <div className="toolbar">
         <select value={kind} onChange={e => setKind(e.target.value)} aria-label="類型"><option value="">全部</option><option>正職</option><option>派遣</option></select>
@@ -30,6 +31,7 @@ export default function People() {
         { key: "name", label: "姓名", render: p => <><b>{p.name}</b><small className="muted block">{p.account}</small></> },
         { key: "kind", label: "類型" }, { key: "dept", label: "部門", hideSm: true },
         { key: "manager", label: "主管", hideSm: true, render: p => lk.nameOf(p.manager_account) },
+        { key: "role", label: "新系統", render: p => p.office_role ? <Badge text={ROLE_LABEL[p.office_role] || p.office_role} tone="green" /> : <Badge text="未開通" tone="yellow" /> },
       ]} />}
       {editing && (
         <Modal title={editing.name} onClose={() => setEditing(null)}>

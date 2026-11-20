@@ -2,7 +2,7 @@
 module.exports = (test, { assert }) => {
   const day = n => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
-  test('[工作台] 同仁：我的工作、我是 PM 的專案；主管多待審數；會計多待付款與毛利警示；派遣只拿派遣資料', ({ call }) => {
+  test('[工作台] 同仁：我的工作、我是 PM 的專案；主管多待審數；會計多待付款與毛利警示；派遣人員不能用工作台', ({ call }) => {
     call('boss', 'people.sync');
     const { project } = call('hazel', 'project.create', { record: { name: '論壇', start_date: day(3), end_date: day(3) } });
     call('hazel', 'task.create', { project_id: project.id, record: { title: '確認講者', owner_account: 'hazel', due_date: day(1) } });
@@ -19,8 +19,7 @@ module.exports = (test, { assert }) => {
     const acc = call('acc', 'dashboard.me');
     assert.strictEqual(acc.finance.marginAlerts.length, 1);
     assert.strictEqual(acc.finance.toPay, 0);
-    const pt = call('pt1', 'dashboard.me');
-    assert.deepStrictEqual(Object.keys(pt), ['dispatch']);
+    assert.throws(() => call('pt1', 'dashboard.me'), /權限/);
   });
 
   test('[管理] 只有 admin 能改設定、看稽核；假日類型檢查', ({ call }) => {

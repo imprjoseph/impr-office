@@ -29,11 +29,13 @@ export default function Attendance() {
   );
 }
 
-function Mine() {
+/** 我的出勤。派遣人員用 dispatch.* 的同一套功能（api 前綴不同），打卡在「今天」分頁。 */
+export function Mine({ api = "attendance." }: { api?: string }) {
+  const self = api === "attendance." ? { mine: "attendance.mine", options: "attendance.options" } : { mine: api + "attendanceMine", options: api + "attendanceOptions" };
   const lk = useLookups();
   const [month, setMonth] = useState(thisMonth());
-  const { data, error, loading, reload } = useLoad<any>("attendance.mine", { month });
-  const opts = useLoad<any>("attendance.options");
+  const { data, error, loading, reload } = useLoad<any>(self.mine, { month });
+  const opts = useLoad<any>(self.options);
   const [form, setForm] = useState<string | null>(null);
   const [trip, setTrip] = useState<string | null>(null);
   const [ip, setIp] = useState("");
@@ -49,19 +51,19 @@ function Mine() {
     punch(trip!, Object.assign({}, v, geo));
   };
   const apply = async (kind: string, v: any) => {
-    const action = { leave: "attendance.applyLeave", overtime: "attendance.applyOvertime", correction: "attendance.applyCorrection" }[kind]!;
+    const action = api + ({ leave: "applyLeave", overtime: "applyOvertime", correction: "applyCorrection" } as Record<string, string>)[kind];
     const r = await run(() => call(action, { record: v }), "已送出，等待主管審核");
     if (r) { setForm(null); reload(); }
   };
   const cancelLeave = async (l: any) => {
-    const r = await run(() => call("attendance.cancelLeave", { id: l.id, expectedUpdatedAt: l.updated_at }), "已取消假單");
+    const r = await run(() => call(api + "cancelLeave", { id: l.id, expectedUpdatedAt: l.updated_at }), "已取消假單");
     if (r) reload();
   };
   const today = data?.today;
   const todayRecs = (data?.attendance || []).filter((a: any) => a.work_date === today);
   return (
     <>
-      {lk.me.role !== "dispatch" && <div className="punch card">
+      {api === "attendance." && <div className="punch card">
         <div>
           <b>今天 {today ? today.replace(/-/g, "/") : ""}</b>
           <p className="muted">上班 {todayRecs.find((a: any) => a.punch === "IN")?.punch_time?.slice(0, 5) || "—"}・下班 {todayRecs.find((a: any) => a.punch === "OUT")?.punch_time?.slice(0, 5) || "—"}・補休餘額 {data?.compBalance ?? "—"} 小時</p>

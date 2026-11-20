@@ -406,19 +406,38 @@ function isWorkday_(date, hol) {
   return w >= 1 && w <= 5;
 }
 
+/**
+ * 派遣人員的出勤自助（看自己的出勤、請假、加班、補卡）：同一套規則，但放在 dispatch.* 底下、只給 dispatch 角色。
+ * 派遣人員碰不到 attendance.*、工作台、專案等內部功能，權限邊界只看前綴就清楚。
+ */
+function selfAttendanceRoutes_(prefix, roles) {
+  const idArgs = p => [requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt')];
+  return {
+    [prefix + 'attendanceOptions']: { roles, handler: () => ({ tripReasons: TRIP_REASONS, leaveTypes: LEAVE_TYPES, flags: FLAG_LABELS }) },
+    [prefix + 'attendanceMine']: { roles, handler: (p, ctx) => AttendanceService.mine(requireString_(p, 'month'), ctx) },
+    [prefix + 'applyLeave']: { roles, handler: (p, ctx) =>
+      AttendanceService.applyLeave(pickAllowed_(p.record || {}, ['leave_type', 'start_date', 'start_time', 'end_date', 'end_time', 'reason'], '假單'), ctx) },
+    [prefix + 'cancelLeave']: { roles, handler: (p, ctx) => AttendanceService.cancelLeave(...idArgs(p), ctx) },
+    [prefix + 'applyOvertime']: { roles, handler: (p, ctx) =>
+      AttendanceService.applyOvertime(pickAllowed_(p.record || {}, ['work_date', 'plan_start', 'plan_end', 'reason', 'project_id'], '加班單'), ctx) },
+    [prefix + 'applyCorrection']: { roles, handler: (p, ctx) =>
+      AttendanceService.applyCorrection(pickAllowed_(p.record || {}, ['work_date', 'punch', 'request_time', 'reason'], '補卡'), ctx) },
+  };
+}
+
 function attendanceRoutes_() {
   const idArgs = p => [requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt')];
   return {
-    'attendance.options': { roles: ALL_ROLES_, handler: () => ({ tripReasons: TRIP_REASONS, leaveTypes: LEAVE_TYPES, flags: FLAG_LABELS }) },
+    'attendance.options': { roles: INTERNAL_ROLES_, handler: () => ({ tripReasons: TRIP_REASONS, leaveTypes: LEAVE_TYPES, flags: FLAG_LABELS }) },
     'attendance.punch': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       AttendanceService.punch(pickAllowed_(p, ['punch', 'ip', 'device_key', 'location', 'reason', 'reason_note', 'lat', 'lng'], '打卡'), ctx) },
-    'attendance.mine': { roles: ALL_ROLES_, handler: (p, ctx) => AttendanceService.mine(requireString_(p, 'month'), ctx) },
-    'attendance.applyLeave': { roles: ALL_ROLES_, handler: (p, ctx) =>
+    'attendance.mine': { roles: INTERNAL_ROLES_, handler: (p, ctx) => AttendanceService.mine(requireString_(p, 'month'), ctx) },
+    'attendance.applyLeave': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       AttendanceService.applyLeave(pickAllowed_(p.record || {}, ['leave_type', 'start_date', 'start_time', 'end_date', 'end_time', 'reason'], '假單'), ctx) },
-    'attendance.cancelLeave': { roles: ALL_ROLES_, handler: (p, ctx) => AttendanceService.cancelLeave(...idArgs(p), ctx) },
-    'attendance.applyOvertime': { roles: ALL_ROLES_, handler: (p, ctx) =>
+    'attendance.cancelLeave': { roles: INTERNAL_ROLES_, handler: (p, ctx) => AttendanceService.cancelLeave(...idArgs(p), ctx) },
+    'attendance.applyOvertime': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       AttendanceService.applyOvertime(pickAllowed_(p.record || {}, ['work_date', 'plan_start', 'plan_end', 'reason', 'project_id'], '加班單'), ctx) },
-    'attendance.applyCorrection': { roles: ALL_ROLES_, handler: (p, ctx) =>
+    'attendance.applyCorrection': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       AttendanceService.applyCorrection(pickAllowed_(p.record || {}, ['work_date', 'punch', 'request_time', 'reason'], '補卡'), ctx) },
     'attendance.pending': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) => AttendanceService.pending(ctx) },
     'attendance.review': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) =>

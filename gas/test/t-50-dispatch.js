@@ -48,4 +48,27 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('pt1', 'attendance.punch', { punch: 'IN' }), e => e.code === 'FORBIDDEN_ERROR');
     assert.throws(() => call('hazel', 'dispatch.punch', { punch: 'IN' }), e => e.code === 'FORBIDDEN_ERROR');
   });
+  test('[派遣] 權限邊界：派遣人員只能用 session.me 與 dispatch.*，其他每條路由都擋', ({ app, call }) => {
+    const routes = app.allRoutes_();
+    const open = Object.keys(routes).filter(k => routes[k].roles.indexOf('dispatch') !== -1).sort();
+    assert.deepStrictEqual(open.filter(k => k !== 'session.me' && k.indexOf('dispatch.') !== 0), []);
+    // 實際呼叫幾個內部功能都被擋
+    ['dashboard.me', 'attendance.mine', 'attendance.options', 'holiday.list', 'project.list', 'client.list', 'people.list',
+      'inventory.withStock', 'partTimer.list', 'media.list', 'ai.forms', 'publicTender.list'].forEach(action => {
+      assert.throws(() => call('pt1', action, { month: '2026-11' }), e => e.code === 'FORBIDDEN_ERROR' || /權限/.test(e.message), action);
+    });
+    // 內部同仁也不能用派遣人員的自助功能（避免用錯入口）
+    assert.throws(() => call('amy', 'dispatch.attendanceMine', { month: '2026-11' }), /權限/);
+  });
+
+  test('[派遣] 派遣人員在「我的派遣」裡請假、加班、補卡、看自己的出勤', ({ call }) => {
+    call('boss', 'people.sync');
+    const opts = call('pt1', 'dispatch.attendanceOptions', {});
+    assert.ok(opts.leaveTypes.length > 0);
+    const leave = call('pt1', 'dispatch.applyLeave', { record: { leave_type: opts.leaveTypes[0], start_date: '2099-01-05', start_time: '09:00', end_date: '2099-01-05', end_time: '18:30', reason: '家中有事' } });
+    assert.strictEqual(leave.account, 'pt1');
+    const mine = call('pt1', 'dispatch.attendanceMine', { month: '2099-01' });
+    assert.strictEqual(mine.leaves.length, 1);
+    call('pt1', 'dispatch.cancelLeave', { id: leave.id, expectedUpdatedAt: leave.updated_at });
+  });
 };

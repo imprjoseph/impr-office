@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { call } from "../api";
 import { Badge, Loading, Modal, Page, RecordForm, Table, Tabs, money, shortDate, useAction, useLoad, useLookups } from "../ui";
-import Attendance from "./Attendance";
+import { Mine as MyAttendance } from "./Attendance";
 
 export function Dispatch() {
   const lk = useLookups();
@@ -110,7 +110,7 @@ export function DispatchMe() {
         { key: "range", label: "日期", render: x => shortDate(x.start_date) + "–" + shortDate(x.end_date) }, { key: "project_name", label: "活動" },
         { key: "venue", label: "地點" }, { key: "role", label: "工作內容" }, { key: "wage", label: "時薪", num: true, render: x => money(x.hourly_wage) },
       ]} />}
-      {tab === "leave" && <Attendance />}
+      {tab === "leave" && <MyAttendance api="dispatch." />}
       {form && (
         <Modal title={form === "report" ? "工作回報" : "問題回報"} onClose={() => setForm(null)}>
           <RecordForm busy={busy} initial={undefined} onCancel={() => setForm(null)} onSubmit={v => submit(form, v)} submitLabel="送出" fields={form === "report"

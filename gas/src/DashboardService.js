@@ -5,7 +5,6 @@
 
 const DashboardService = {
   forMe(ctx) {
-    if (ctx.role === ROLES.DISPATCH) return { dispatch: DispatchService.mine(ctx) };
     const today = todayIso_();
     const weekEnd = addDays_(today, 7);
     const projects = ProjectService.list(ctx);
@@ -44,7 +43,7 @@ const SETTING_FIELDS_ = ['value'];
 
 function dashboardRoutes_() {
   return {
-    'dashboard.me': { roles: ALL_ROLES_, handler: (p, ctx) => DashboardService.forMe(ctx) },
+    'dashboard.me': { roles: INTERNAL_ROLES_, handler: (p, ctx) => DashboardService.forMe(ctx) },
   };
 }
 
@@ -60,7 +59,7 @@ function adminRoutes_() {
       } },
       'audit.list': { roles: admin, handler: () => sortBy_(repo_('audit_log').findAll(), 'created_at').reverse().slice(0, 500) },
     },
-    crudRoutes_('holiday', 'holidays', { read: ALL_ROLES_, write: admin, fields: ['holiday_date', 'name', 'kind'], label: '假日',
+    crudRoutes_('holiday', 'holidays', { read: INTERNAL_ROLES_, write: admin, fields: ['holiday_date', 'name', 'kind'], label: '假日',
       validate: r => { if (['HOLIDAY', 'WORKDAY'].indexOf(r.kind) === -1) throw new AppError(ERROR_CODES.VALIDATION, '類型只能是 HOLIDAY（放假）或 WORKDAY（補班）'); } }),
     crudRoutes_('device', 'devices', { read: admin, write: admin, fields: ['device_key', 'name', 'registered_by', 'active'], label: '打卡設備' }),
   );

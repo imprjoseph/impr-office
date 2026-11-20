@@ -1,11 +1,8 @@
 import { Badge, Empty, Loading, Page, money, pct, shortDate, useLoad, useLookups } from "../ui";
-import { DispatchMe } from "./Dispatch";
 
 export default function Dashboard() {
   const { me } = useLookups();
-  // 派遣人員的首頁是「我的派遣」，不讀內部工作台（後端也只回派遣資料）。
-  const { data, error, loading } = useLoad<any>(me.role === "dispatch" ? null : "dashboard.me");
-  if (me.role === "dispatch") return <DispatchMe />;
+  const { data, error, loading } = useLoad<any>("dashboard.me");
   return (
     <Page title={"早安，" + me.name} sub={data?.today ? "今天 " + data.today.replace(/-/g, "/") : undefined}>
       <Loading error={error} loading={loading && !data} />

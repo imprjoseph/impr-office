@@ -150,6 +150,7 @@ function dispatchRoutes_() {
     'dispatch.replyIssue': { roles: INTERNAL_ROLES_, handler: (p, ctx) => DispatchService.replyIssue(...idArgs(p), p.reply, ctx) },
     'dispatch.laborCost': { roles: FINANCE_ROLES_, handler: p => DispatchService.laborCost(requireString_(p, 'project_id')) },
     // 以下是派遣人員自己用的
+    ...selfAttendanceRoutes_('dispatch.', dispatchOnly),
     'dispatch.mine': { roles: dispatchOnly, handler: (p, ctx) => DispatchService.mine(ctx) },
     'dispatch.punch': { roles: dispatchOnly, handler: (p, ctx) =>
       DispatchService.punch(pickAllowed_(p, ['punch', 'location', 'lat', 'lng'], '打卡'), ctx) },

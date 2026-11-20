@@ -54,10 +54,14 @@ export function LookupProvider({ me, children }: { me: Me; children: ReactNode }
   const [state, setState] = useState({ people: [] as any[], projects: [] as any[], clients: [] as any[], suppliers: [] as any[] });
   const refresh = useCallback(async (which = ["people", "projects", "clients", "suppliers"]) => {
     if (!internal) return;
+    // 主管與管理者每次開啟系統先從帳號中心同步一次人員（帳號中心新增、停用的人自動反映，不用記得按同步）。
+    if (which.includes("people") && ["admin", "manager"].includes(me.role) && !sessionStorage.getItem("impr_people_synced")) {
+      try { await call("people.sync"); sessionStorage.setItem("impr_people_synced", "1"); } catch { /* 同步失敗仍用現有名單 */ }
+    }
     const actions: Record<string, string> = { people: "people.list", projects: "project.list", clients: "client.list", suppliers: "supplier.list" };
     const results = await Promise.all(which.map(w => call<any[]>(actions[w]).catch(() => [])));
     setState(s => Object.assign({}, s, Object.fromEntries(which.map((w, i) => [w, results[i]]))));
-  }, [internal]);
+  }, [internal, me.role]);
   useEffect(() => { refresh(); }, [refresh]);
   const value = useMemo<Lookups>(() => ({
     me, ...state, refresh,

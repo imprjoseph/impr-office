@@ -6,6 +6,7 @@ module.exports = (test, { assert }) => {
     assert.deepStrictEqual({ ...call('boss', 'people.sync') }, { added: 0, updated: 0 });
     const amy = app.PeopleService.byAccount('amy');
     assert.strictEqual(amy.manager_account, 'mgr');
+    assert.strictEqual(amy.office_role, 'staff');
     assert.strictEqual(app.PeopleService.byAccount('pt1').kind, '派遣');
     assert.throws(() => call('boss', 'people.update', { id: amy.id, expectedUpdatedAt: amy.updated_at, patch: { hourly_wage: 200 } }), /hourly_wage|不能修改|不允許/);
     call('boss', 'people.update', { id: amy.id, expectedUpdatedAt: amy.updated_at, patch: { rating: 4 } });

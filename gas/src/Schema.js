@@ -52,7 +52,9 @@ const TABLES = {
   // 帳號、密碼、角色在帳號中心；這裡是人事資料，account 對應帳號中心，派遣人員的合約也在這裡；時薪不放人員資料，排班時逐筆填。
   people: { prefix: 'per', cache: true, columns: cols_(
     'account!, name!, email, dept, manager_account, kind!, phone, region, ' +
-    'contract_start:date, contract_end:date, rating:num, active:bool, note') },
+    'contract_start:date, contract_end:date, rating:num, active:bool, note, ' +
+    // 帳號中心 office 欄的角色；空白代表還沒開通，登入新系統會被擋
+    'office_role') },
   clients: { prefix: 'cli', cache: true, columns: cols_(
     'name!, tax_id, industry, address, phone, website, owner_account, tags, note, ' +
     // 主要窗口直接放在客戶資料上，打開客戶就看得到；其他聯絡人放 contacts。

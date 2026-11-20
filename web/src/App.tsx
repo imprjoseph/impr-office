@@ -28,7 +28,7 @@ import Reports from "./pages/Reports";
 interface NavItem { path: string; label: string; icon: any; roles?: string[] }
 const INTERNAL = ["admin", "manager", "accountant", "staff"];
 const NAV: { group: string; items: NavItem[] }[] = [
-  { group: "", items: [{ path: "", label: "我的工作台", icon: Home }] },
+  { group: "", items: [{ path: "", label: "我的工作台", icon: Home, roles: INTERNAL }] },
   { group: "專案", items: [
     { path: "projects", label: "專案與工作", icon: Briefcase, roles: INTERNAL },
     { path: "tenders", label: "標案", icon: Gavel, roles: INTERNAL },
@@ -39,7 +39,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { path: "reports", label: "毛利報表", icon: BarChart3, roles: ["admin", "manager", "accountant"] },
   ] },
   { group: "人力", items: [
-    { path: "attendance", label: "考勤", icon: CalendarClock },
+    { path: "attendance", label: "考勤", icon: CalendarClock, roles: INTERNAL },
     { path: "dispatch", label: "派遣", icon: Truck, roles: INTERNAL },
     { path: "dispatch-me", label: "我的派遣", icon: Truck, roles: ["dispatch"] },
     { path: "timesheet", label: "工時週報", icon: ClipboardList, roles: INTERNAL },
@@ -75,6 +75,8 @@ function Shell() {
   const allowed = (i: NavItem) => !i.roles || i.roles.includes(me.role);
   const route = section || "";
   const page = (() => {
+    // 派遣人員只有「我的派遣」：其他網址一律回到這頁（後端也只開放 dispatch.* 給派遣角色）。
+    if (me.role === "dispatch") return <DispatchMe />;
     const item = NAV.flatMap(g => g.items).find(i => i.path === route);
     if (item && !allowed(item)) return <p className="error">你沒有這個功能的權限。</p>;
     switch (route) {
