@@ -77,13 +77,15 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('pt1', 'project.list'), e => e.code === 'FORBIDDEN_ERROR');
     assert.throws(() => call('pt1', 'tender.list'), e => e.code === 'FORBIDDEN_ERROR');
   });
-  test('[專案] 依活動類型代入參考工作：通用＋該類型；頒獎典禮自動改為典禮；類型要在清單內', ({ app, call }) => {
+  test('[專案] 依活動類型代入參考工作：通用（含基本事項）＋該類型；頒獎典禮自動改為典禮；類型要在清單內', ({ app, call }) => {
     call('boss', 'template.create', { record: { category: '合約行政', title: '確認合約與報價', offset_days: -60, priority: '關鍵', sort: 1 } });
+    assert.ok(call('boss', 'template.seedTypes', {}).added > 60);
     const typed = app.repo_('task_templates').findAll().filter(t => t.project_types);
     assert.ok(typed.some(t => t.project_types === '記者會') && typed.some(t => t.project_types === '典禮'));
     const { project, tasks } = call('hazel', 'project.create', { record: { name: '新品記者會', project_type: '記者會', start_date: '2027-03-20' }, applyTemplate: true });
     const titles = tasks.map(t => t.title);
     assert.ok(titles.includes('確認合約與報價'));
+    ['場地場勘', '進度會議（T-14）', '燈光需求', '音響測試', '軟硬體測試'].forEach(k => assert.ok(titles.some(t => t.indexOf(k) === 0), k));
     assert.ok(titles.includes('撰寫新聞稿並送客戶確認'));
     assert.ok(!titles.includes('全程彩排'));
     assert.strictEqual(tasks.find(t => t.title === '撰寫新聞稿並送客戶確認').due_date, '2027-03-13');
@@ -91,10 +93,24 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(c.project.project_type, '典禮');
     assert.ok(c.tasks.some(t => t.title === '全程彩排'));
     const none = call('hazel', 'project.create', { record: { name: '未分類', start_date: '2027-05-01' }, applyTemplate: true });
-    assert.deepStrictEqual(none.tasks.map(t => t.title), ['確認合約與報價']);
+    assert.strictEqual(none.tasks[0].title, '確認合約與報價');
+    assert.ok(none.tasks.every(t => !t.title.includes('新聞稿')));
+    assert.strictEqual(none.tasks.length, 1 + app.BASIC_REFERENCE_TASKS_.length);
     assert.throws(() => call('hazel', 'project.create', { record: { name: '亂填', project_type: '派對' } }), /活動類型只能是/);
     assert.strictEqual(call('boss', 'template.seedTypes', {}).added, 0);
     assert.ok(call('hazel', 'project.types', {}).includes('典禮'));
     assert.ok(!call('hazel', 'project.types', {}).includes('頒獎典禮'));
+  });
+  test('[範本] 參考工作項目自動補：版本變了才補、只補缺的、不重複補主管刪掉以外的', ({ app, properties }) => {
+    properties.TEMPLATE_SEED_VERSION = '0';
+    app.ensureTemplateSeed_();
+    const n = app.repo_('task_templates').findAll().length;
+    assert.ok(n > 60);
+    assert.strictEqual(properties.TEMPLATE_SEED_VERSION, app.TEMPLATE_SEED_VERSION_);
+    app.ensureTemplateSeed_();
+    assert.strictEqual(app.repo_('task_templates').findAll().length, n);
+    properties.TEMPLATE_SEED_VERSION = '0';
+    app.ensureTemplateSeed_();
+    assert.strictEqual(app.repo_('task_templates').findAll().length, n);
   });
 };

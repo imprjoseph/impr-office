@@ -26,6 +26,7 @@ call('boss', 'people.update', { id: pt.id, expectedUpdatedAt: pt.updated_at, pat
 [['合約行政', '確認合約、報價與工作範圍', -60, '關鍵'], ['整體時程', '建立專案總時程及查核點', -60, '關鍵'], ['視覺設計', '主視覺提案', -30, '高'],
  ['講師貴賓', '確認講者名單與行程', -21, '高'], ['輸出物', '背板與指引送印', -7, '中'], ['驗收結案', '成果報告與請款', 14, '中']]
   .forEach(([category, title, offset_days, priority], i) => call('boss', 'template.create', { record: { category, title, offset_days, priority, sort: i } }));
+call('boss', 'template.seedTypes', {});
 const cli = call('hazel', 'client.create', { record: { name: '資策會數轉院', industry: '法人' } });
 const sup = call('hazel', 'supplier.create', { record: { name: '富立音響', category: '音響', contact_name: '林先生', contact_phone: '02-2345-6789' } });
 call('hazel', 'supplier.create', { record: { name: '藍鯊攝影', category: '攝影／錄影' } });

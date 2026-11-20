@@ -46,8 +46,7 @@ function setupDatabase() {
 function setupSheets() {
   const ss = getSpreadsheet_();
   const result = Object.keys(TABLES).map(name => ensureSheet_(ss, TABLES[name]));
-  // 各活動類型的參考工作項目：範本表還沒有任何「指定類型」的範本時才寫入，之後以主管增修的為準。
-  if (!repo_('task_templates').findAll().some(t => templateTypes_(t).length)) seedTypeTemplates_('system');
+  ensureTemplateSeed_();
   return result;
 }
 
@@ -59,10 +58,18 @@ function schemaSignature_() {
  * 欄位定義改變後自動補欄位：每次請求比對 schema 簽章，不同才執行 setupSheets。
  * 升級程式後不必記得手動跑，否則新欄位缺漏時整個模組都會讀取失敗。
  */
+/** 基本事項與各類型參考工作項目：版本變了才補（只補缺的），之後以主管在工作範本增修的為準。 */
+function ensureTemplateSeed_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('TEMPLATE_SEED_VERSION') === TEMPLATE_SEED_VERSION_) return;
+  withScriptLock_(() => seedTypeTemplates_('system'));
+  props.setProperty('TEMPLATE_SEED_VERSION', TEMPLATE_SEED_VERSION_);
+}
+
 function ensureSchema_() {
   const props = PropertiesService.getScriptProperties();
   const signature = schemaSignature_();
-  if (props.getProperty('SCHEMA_SIGNATURE') === signature) return false;
+  if (props.getProperty('SCHEMA_SIGNATURE') === signature) { ensureTemplateSeed_(); return false; }
   withScriptLock_(() => setupSheets());
   props.setProperty('SCHEMA_SIGNATURE', signature);
   return true;

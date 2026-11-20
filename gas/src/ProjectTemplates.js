@@ -1,6 +1,7 @@
 /**
  * 各活動類型的參考工作項目。新增專案時：通用範本（project_types 空白，即追蹤表的 T-60 範本）＋該類型的參考項目。
- * 這裡只放該類型特有的工作，合約、總時程、結案這類共通工作由通用範本負責，避免重複。
+ * 每種活動都要做的基本事項（場勘、進度會議、燈光、音響、軟硬體…）放 BASIC_REFERENCE_TASKS_，寫成通用範本；
+ * TYPE_REFERENCE_TASKS_ 只放該類型特有的工作，避免重複。
  * 第一次升級時自動寫進工作範本（seedTypeTemplates_）；之後由主管在「系統設定 → 工作範本」增修，以範本表為準。
  *
  * 格式：[工作分類, 工作項目, 距活動日天數（T-30 填 -30）, 重要性, 建議負責角色]
@@ -25,6 +26,26 @@ function templateAppliesTo_(t, projectType) {
   const types = templateTypes_(t);
   return !types.length || (!!projectType && types.indexOf(projectType) !== -1);
 }
+
+const BASIC_REFERENCE_TASKS_ = [
+  ['專案管理', '專案啟動會議（分工、時程、預算）', -60, '關鍵', 'PM'],
+  ['場地', '場地場勘（動線、電源、網路、卸貨、無障礙）', -45, '關鍵', 'PM'],
+  ['專案管理', '進度會議（T-30）', -30, '高', 'PM'],
+  ['燈光', '燈光需求確認與廠商預約', -30, '高', '執行'],
+  ['音響', '音響需求確認與廠商預約（麥克風數量、混音、錄音）', -30, '高', '執行'],
+  ['軟硬體', '視聽與資訊軟硬體需求確認（投影、LED、電腦、網路、報名報到系統）', -30, '高', '執行'],
+  ['場地', '場地平面圖與動線規劃', -21, '高', '執行'],
+  ['專案管理', '進度會議（T-14）', -14, '高', 'PM'],
+  ['合約行政', '活動公共意外責任險', -14, '中', '執行'],
+  ['專案管理', '進度會議（T-7）', -7, '高', 'PM'],
+  ['現場執行', '現場工作人員分工表與聯絡清單', -7, '高', 'PM'],
+  ['專案管理', '行前總確認會議', -3, '關鍵', 'PM'],
+  ['現場執行', '物資清點與裝箱', -2, '中', '執行'],
+  ['燈光', '燈光進場架設與測試', -1, '高', '執行'],
+  ['音響', '音響測試與麥克風配置', -1, '高', '執行'],
+  ['軟硬體', '軟硬體測試與備援（簡報電腦、網路、報到系統）', -1, '關鍵', '執行'],
+  ['現場執行', '撤場與場地復原', 1, '中', '執行'],
+];
 
 const TYPE_REFERENCE_TASKS_ = {
   '論壇': [
@@ -113,12 +134,25 @@ const TYPE_REFERENCE_TASKS_ = {
   ],
 };
 
-/** 寫入各類型參考工作項目；已存在（同類型＋分類＋項目）的略過，可重複執行。回傳新增筆數。 */
+// 參考工作項目的版本：內容有增加時加 1，下一次請求會自動補進範本表（只補缺的，不動主管改過的）。
+const TEMPLATE_SEED_VERSION_ = '2';
+
+/** 寫入基本事項與各類型參考工作項目；已存在（同類型＋分類＋項目）的略過，可重複執行。回傳新增筆數。 */
 function seedTypeTemplates_(actor) {
   const repo = repo_('task_templates');
   const existing = {};
-  repo.findAll().forEach(t => { existing[templateTypes_(t).join('、') + '|' + normName_(t.category + '|' + t.title)] = true; });
+  const titles = {};
+  repo.findAll().forEach(t => {
+    existing[templateTypes_(t).join('、') + '|' + normName_(t.category + '|' + t.title)] = true;
+    if (!templateTypes_(t).length) titles[normName_(t.title)] = true;
+  });
   const rows = [];
+  BASIC_REFERENCE_TASKS_.forEach(([category, title, offset, priority, role], i) => {
+    const key = '|' + normName_(category + '|' + title);
+    if (existing[key] || titles[normName_(title)]) return;
+    existing[key] = true;
+    rows.push({ project_types: null, category, title, offset_days: offset, priority, role, sort: 500 + i });
+  });
   Object.keys(TYPE_REFERENCE_TASKS_).forEach(type => TYPE_REFERENCE_TASKS_[type].forEach(([category, title, offset, priority, role], i) => {
     const key = type + '|' + normName_(category + '|' + title);
     if (existing[key]) return;

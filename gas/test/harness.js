@@ -55,6 +55,8 @@ function load() {
     // eval 在同一個範圍內，連 const / class 都拿得到：app.TABLES、app.ProjectService…
     + '\n;new Proxy({}, { get: (_, name) => eval(String(name)) })';
   const app = vm.runInContext(code, context);
+  // 測試從空的工作範本開始；要參考工作項目的測試自己呼叫 template.seedTypes。
+  env.properties.TEMPLATE_SEED_VERSION = app.TEMPLATE_SEED_VERSION_;
   app.setupDatabase();
   // 呼叫 API：as 是測試帳號（也就是 token）。回傳 data，失敗丟出帶 code 的錯誤，方便 assert.throws。
   const call = (as, action, payload) => {
