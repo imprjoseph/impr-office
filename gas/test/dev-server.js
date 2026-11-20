@@ -22,7 +22,7 @@ const day = n => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); retur
 // ---- 示範資料 ----
 call('boss', 'people.sync');
 const pt = app.PeopleService.byAccount('pt1');
-call('boss', 'people.update', { id: pt.id, expectedUpdatedAt: pt.updated_at, patch: { hourly_wage: 200, region: '台北' } });
+call('boss', 'people.update', { id: pt.id, expectedUpdatedAt: pt.updated_at, patch: { region: '台北' } });
 [['合約行政', '確認合約、報價與工作範圍', -60, '關鍵'], ['整體時程', '建立專案總時程及查核點', -60, '關鍵'], ['視覺設計', '主視覺提案', -30, '高'],
  ['講師貴賓', '確認講者名單與行程', -21, '高'], ['輸出物', '背板與指引送印', -7, '中'], ['驗收結案', '成果報告與請款', 14, '中']]
   .forEach(([category, title, offset_days, priority], i) => call('boss', 'template.create', { record: { category, title, offset_days, priority, sort: i } }));
@@ -41,7 +41,7 @@ call('hazel', 'budget.addChange', { project_id: a.id, record: { kind: '增項', 
 const e1 = call('amy', 'expense.create', { record: { project_id: a.id, budget_line_id: line.id, category: '設備租借', description: '追加無線麥克風', amount: 12000 } });
 call('amy', 'expense.submit', { id: e1.id, expectedUpdatedAt: e1.updated_at });
 call('hazel', 'tender.create', { record: { title: '2027 防詐宣導整合行銷', agency: '電信協會', budget_amount: 2400000, deadline_date: day(9), opening_date: day(12) } });
-call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: b.id, start_date: day(0), end_date: day(21), role: '報到台' } });
+call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: b.id, start_date: day(0), end_date: day(21), role: '報到台', hourly_wage: 200 } });
 const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', quantity: 8, unit: '支', location: '倉庫 A' } });
 call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2, project_id: a.id, due_date: day(6) } });
 // 政府標案資料庫（示範幾筆）

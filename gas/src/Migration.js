@@ -326,7 +326,7 @@ function migrateResource_(m) {
   m.insert('帳密大全', 'credentials', m.rows(ss, 'credentials').filter(r => cellText_(r.name)).map(r => ({
     service: cellText_(r.name), url: cellText_(r.url), username: cellText_(r.account), password: cellText_(r.password), note: cellText_(r.period),
   })), r => normName_(r.service + '|' + (r.username || '')));
-  // 派遣名冊：補到人員資料（時薪、地區、合約）。帳號要先在帳號中心建好、同步過來，這裡只更新不新增。
+  // 派遣名冊：補到人員資料（地區、合約）；舊名冊的時薪不搬，排班時再填。帳號要先在帳號中心建好、同步過來，這裡只更新不新增。
   const personnel = m.rows(ss, 'personnel');
   const patches = {};
   let unmatched = 0;
@@ -334,7 +334,7 @@ function migrateResource_(m) {
     const account = m.person(r.email || r.name, '派遣名冊');
     const p = account && PeopleService.byAccount(account);
     if (!p) { unmatched++; return; }
-    patches[p.id] = { hourly_wage: cellNum_(r.hourlyRate), region: cellText_(r.area), phone: cellText_(r.phone) || p.phone || null,
+    patches[p.id] = { region: cellText_(r.area), phone: cellText_(r.phone) || p.phone || null,
       contract_start: cellDate_(r.startDate), contract_end: cellDate_(r.endDate), rating: cellNum_(r.rating), note: cellText_(r.note) };
   });
   if (!m.dry) withScriptLock_(() => repo_('people').updateMany(patches, 'migration'));

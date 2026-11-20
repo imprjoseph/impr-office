@@ -45,7 +45,6 @@ export function Dispatch() {
       {tab === "roster" && <Table rows={lk.people.filter(p => p.kind === "派遣")} empty="沒有派遣人員。請在帳號中心新增類型為「派遣」的帳號，再到人員頁同步。" columns={[
         { key: "name", label: "姓名" }, { key: "region", label: "地區" }, { key: "phone", label: "電話" },
         { key: "contract", label: "合約", render: p => (p.contract_start || "—") + " ～ " + (p.contract_end || "—") },
-        ...(finance ? [{ key: "wage", label: "時薪", num: true, render: (p: any) => money(p.hourly_wage) }] : []),
       ]} />}
       {tab === "reports" && <><Loading error={reports.error} loading={reports.loading && !reports.data} />{reports.data && <Table rows={reports.data} empty="沒有工作回報。" columns={[
         { key: "d", label: "日期", render: r => shortDate(r.report_date) }, { key: "who", label: "人員", render: r => lk.nameOf(r.account) },
@@ -62,7 +61,7 @@ export function Dispatch() {
             { name: "account", label: "派遣人員", type: "person", required: true, filter: p => p.kind === "派遣" },
             { name: "project_id", label: "專案", type: "project", required: true },
             { name: "start_date", label: "開始", type: "date", required: true }, { name: "end_date", label: "結束", type: "date", required: true },
-            { name: "role", label: "工作內容" }, ...(finance ? [{ name: "hourly_wage", label: "時薪（空白帶入人員資料）", type: "number" as const }] : []),
+            { name: "role", label: "工作內容" }, ...(finance ? [{ name: "hourly_wage", label: "時薪（計算專案人力成本）", type: "number" as const }] : []),
             { name: "note", label: "備註", type: "textarea" },
           ]} />
         </Modal>

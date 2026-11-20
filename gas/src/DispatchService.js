@@ -21,7 +21,6 @@ const DispatchService = {
         a.start_date <= input.end_date && input.start_date <= a.end_date)[0];
       if (clash) throw new AppError(ERROR_CODES.SCHEDULE_CONFLICT, person.name + ' 在 ' + clash.start_date + '～' + clash.end_date + ' 已經排了其他專案');
       return repo_('dispatch_assignments').insert(Object.assign({}, input, {
-        hourly_wage: input.hourly_wage !== undefined && input.hourly_wage !== null ? input.hourly_wage : person.hourly_wage,
         status: ASSIGNMENT_STATUS.ACTIVE,
       }), ctx.account);
     });

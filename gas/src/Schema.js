@@ -49,9 +49,9 @@ function cols_(spec) {
  */
 const TABLES = {
   // ---- 人員與往來對象 ----
-  // 帳號、密碼、角色在帳號中心；這裡是人事資料，account 對應帳號中心，派遣人員的時薪、合約也在這裡。
+  // 帳號、密碼、角色在帳號中心；這裡是人事資料，account 對應帳號中心，派遣人員的合約也在這裡；時薪不放人員資料，排班時逐筆填。
   people: { prefix: 'per', cache: true, columns: cols_(
-    'account!, name!, email, dept, manager_account, kind!, phone, hourly_wage:num, region, ' +
+    'account!, name!, email, dept, manager_account, kind!, phone, region, ' +
     'contract_start:date, contract_end:date, rating:num, active:bool, note') },
   clients: { prefix: 'cli', cache: true, columns: cols_(
     'name!, tax_id, industry, address, phone, website, owner_account, tags, note') },

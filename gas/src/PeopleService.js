@@ -1,11 +1,11 @@
 /**
- * 人員：帳號中心管帳號、密碼、角色；這裡是人事資料（部門、主管、正職或派遣、時薪、合約）。
+ * 人員：帳號中心管帳號、密碼、角色；這裡是人事資料（部門、主管、正職或派遣、合約）。
  * 姓名、email、部門、主管從帳號中心同步，不在這裡重填（帳號中心有的資料不重覆輸入）。
  */
 
-const PEOPLE_FIELDS_ = ['phone', 'hourly_wage', 'region', 'contract_start', 'contract_end', 'rating', 'note'];
-// 時薪、評價只有財務角色看得到：同仁互看時薪會造成困擾，派遣人員也不該看到別人的。
-const PEOPLE_FINANCE_FIELDS_ = ['hourly_wage', 'rating'];
+const PEOPLE_FIELDS_ = ['phone', 'region', 'contract_start', 'contract_end', 'rating', 'note'];
+// 評價只有財務角色看得到。人員資料不放時薪：時薪在派遣排班時逐筆填，只有財務角色看得到。
+const PEOPLE_FINANCE_FIELDS_ = ['rating'];
 
 const PeopleService = {
   byAccount(account) {
@@ -94,7 +94,7 @@ function peopleRoutes_() {
   return {
     'people.list': { roles: INTERNAL_ROLES_, handler: (p, ctx) => PeopleService.list(ctx) },
     'people.sync': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) => PeopleService.syncFromAccountCenter(ctx) },
-    // 人事資料（時薪、合約）只有主管與管理者能改；姓名、部門等改帳號中心。
+    // 人事資料（地區、合約）只有主管與管理者能改；姓名、部門等改帳號中心。
     'people.update': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) => {
       const a = updateArgs_(p, PEOPLE_FIELDS_, '人員');
       return updateRecord_('people', a.id, a.expected, a.patch, ctx.account);

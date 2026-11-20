@@ -1,15 +1,17 @@
 /** 人員、客戶、供應商。 */
 module.exports = (test, { assert }) => {
-  test('[人員] 從帳號中心同步：新增、再同步不重複；名單消失的標停用；同仁看不到時薪', ({ app, call, USERS }) => {
+  test('[人員] 從帳號中心同步：新增、再同步不重複；名單消失的標停用；人員沒有時薪欄；同仁看不到評價', ({ app, call, USERS }) => {
     const r = call('boss', 'people.sync');
     assert.strictEqual(r.added, Object.keys(USERS).length);
     assert.deepStrictEqual({ ...call('boss', 'people.sync') }, { added: 0, updated: 0 });
     const amy = app.PeopleService.byAccount('amy');
     assert.strictEqual(amy.manager_account, 'mgr');
     assert.strictEqual(app.PeopleService.byAccount('pt1').kind, '派遣');
-    call('boss', 'people.update', { id: amy.id, expectedUpdatedAt: amy.updated_at, patch: { hourly_wage: 200 } });
-    assert.strictEqual(call('acc', 'people.list').find(p => p.account === 'amy').hourly_wage, 200);
-    assert.strictEqual('hourly_wage' in call('hazel', 'people.list').find(p => p.account === 'amy'), false);
+    assert.throws(() => call('boss', 'people.update', { id: amy.id, expectedUpdatedAt: amy.updated_at, patch: { hourly_wage: 200 } }), /hourly_wage|不能修改|不允許/);
+    call('boss', 'people.update', { id: amy.id, expectedUpdatedAt: amy.updated_at, patch: { rating: 4 } });
+    assert.strictEqual(call('acc', 'people.list').find(p => p.account === 'amy').rating, 4);
+    assert.strictEqual('rating' in call('hazel', 'people.list').find(p => p.account === 'amy'), false);
+    assert.strictEqual('hourly_wage' in call('acc', 'people.list').find(p => p.account === 'amy'), false);
     delete USERS.amy;
     call('boss', 'people.sync');
     assert.strictEqual(call('boss', 'people.list').some(p => p.account === 'amy'), false);

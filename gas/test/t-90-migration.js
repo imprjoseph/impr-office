@@ -50,7 +50,8 @@ module.exports = (test, { assert }) => {
     assert.deepStrictEqual([...app.repo_('suppliers').findAll().map(s => s.name)], ['富立音響']);
     assert.strictEqual(app.repo_('tenders').findAll()[0].owner_account, 'hazel');
     assert.strictEqual(app.repo_('inventory').findAll()[0].manager_account, 'amy');
-    assert.strictEqual(app.PeopleService.byAccount('pt1').hourly_wage, 190);
+    assert.strictEqual(app.PeopleService.byAccount('pt1').region, '台北');
+    assert.strictEqual('hourly_wage' in app.PeopleService.byAccount('pt1'), false);
     assert.ok(real.some(r => /找不到對應的活動編號/.test(r.note || '')));
 
     const again = app.migrateAll();

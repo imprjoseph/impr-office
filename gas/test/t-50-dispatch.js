@@ -2,16 +2,14 @@
 module.exports = (test, { assert }) => {
   function setup(app, call) {
     call('boss', 'people.sync');
-    const pt = app.PeopleService.byAccount('pt1');
-    call('boss', 'people.update', { id: pt.id, expectedUpdatedAt: pt.updated_at, patch: { hourly_wage: 200 } });
     const { project } = call('hazel', 'project.create', { record: { name: '國防 AI 論壇', venue: '南港展覽館' } });
     call('hazel', 'budget.addLine', { project_id: project.id, record: { category: '人力', item: '總報價', quote_amount: 100000, cost_estimate: 0 } });
     return project;
   }
 
-  test('[派遣] 排班帶入時薪；同人同期間不能排兩個專案；正職不能排', ({ app, call }) => {
+  test('[派遣] 排班時填時薪；同人同期間不能排兩個專案；正職不能排', ({ app, call }) => {
     const project = setup(app, call);
-    const a = call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: project.id, start_date: '2026-11-18', end_date: '2026-11-19', role: '報到' } });
+    const a = call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: project.id, start_date: '2026-11-18', end_date: '2026-11-19', role: '報到', hourly_wage: 200 } });
     assert.strictEqual(a.hourly_wage, 200);
     assert.throws(() => call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: project.id, start_date: '2026-11-19', end_date: '2026-11-20' } }), e => e.code === 'SCHEDULE_CONFLICT_ERROR');
     assert.throws(() => call('hazel', 'dispatch.assign', { record: { account: 'amy', project_id: project.id, start_date: '2026-11-25', end_date: '2026-11-25' } }), e => /派遣人員/.test(e.message));
@@ -22,7 +20,7 @@ module.exports = (test, { assert }) => {
     const project = setup(app, call);
     app.setNowForTest_('2026-11-17T08:00:00Z');
     assert.throws(() => call('pt1', 'dispatch.punch', { punch: 'IN' }), e => /沒有你的派遣排班/.test(e.message));
-    call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: project.id, start_date: '2026-11-18', end_date: '2026-11-18' } });
+    call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: project.id, start_date: '2026-11-18', end_date: '2026-11-18', hourly_wage: 200 } });
     app.setNowForTest_('2026-11-18T08:00:00Z');
     call('pt1', 'dispatch.punch', { punch: 'IN', location: '南港' });
     app.setNowForTest_('2026-11-18T18:10:00Z');
