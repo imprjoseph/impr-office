@@ -19,7 +19,7 @@ const DashboardService = {
       lights: { red: open.filter(p => p.light === '紅燈').length, yellow: open.filter(p => p.light === '黃燈').length, green: open.filter(p => p.light === '綠燈').length },
       tenders: TenderService.dueFor(ctx.account, today),
       myExpenses: ExpenseService.list('mine', ctx).filter(e => e.status !== EXPENSE_STATUS.PAID).slice(0, 10),
-      myLoans: ResourceService.loans().filter(l => l.borrower_account === ctx.account && l.status === LOAN_STATUS.OUT),
+      myLoans: InventoryService.loans().filter(l => l.borrower_account === ctx.account && l.status === LOAN_STATUS.OUT),
       approvals: null,
       finance: null,
     };

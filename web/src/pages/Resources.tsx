@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { call } from "../api";
 import { PROJECT_TYPES } from "./Projects";
+import Inventory from "./Inventory";
 import { Badge, CrudPage, Loading, Modal, Page, RecordForm, Table, Tabs, shortDate, useAction, useLoad, useLookups } from "../ui";
 
 export default function Resources() {
   const lk = useLookups();
-  const tabs: [string, string][] = [["inventory", "資材借還"], ["sops", "SOP"], ["cases", "案例"]];
+  const tabs: [string, string][] = [["inventory", "資材"], ["sops", "SOP"], ["cases", "案例"]];
   if (lk.can("admin")) tabs.push(["credentials", "帳密大全"]);
   const [tab, setTab] = useState("inventory");
   return (
@@ -26,61 +27,6 @@ export default function Resources() {
   );
 }
 
-function Inventory() {
-  const lk = useLookups();
-  const items = useLoad<any[]>("inventory.withStock");
-  const loans = useLoad<any[]>("loan.list");
-  const [borrowing, setBorrowing] = useState<any | null>(null);
-  const [editing, setEditing] = useState<any | null | undefined>(undefined);
-  const { busy, run } = useAction();
-  const reload = () => { items.reload(); loans.reload(); };
-  const borrow = async (v: any) => {
-    const r = await run(() => call("loan.borrow", { record: Object.assign({ inventory_id: borrowing.id }, v) }), "已登記借用");
-    if (r) { setBorrowing(null); reload(); }
-  };
-  const giveBack = async (l: any) => {
-    const r = await run(() => call("loan.return", { id: l.id, expectedUpdatedAt: l.updated_at }), "已歸還");
-    if (r) reload();
-  };
-  const save = async (v: any) => {
-    const r = await run(() => editing ? call("inventory.update", { id: editing.id, expectedUpdatedAt: editing.updated_at, patch: v }) : call("inventory.create", { record: v }), "已儲存");
-    if (r) { setEditing(undefined); reload(); }
-  };
-  return (
-    <Page title="資材借還" actions={<button className="btn primary" onClick={() => setEditing(null)}>＋ 新增資材</button>}>
-      <Loading error={items.error} loading={items.loading && !items.data} />
-      {items.data && <Table rows={items.data} empty="還沒有資材。" columns={[
-        { key: "name", label: "資材", render: i => <><b>{i.name}</b><small className="muted block">{i.category || ""}{i.location ? "・" + i.location : ""}</small></> },
-        { key: "q", label: "可借／總數", num: true, render: i => <span className={i.available <= 0 ? "red" : ""}>{i.available}/{i.quantity ?? 0} {i.unit || ""}</span> },
-        { key: "m", label: "管理人", hideSm: true, render: i => lk.nameOf(i.manager_account) },
-        { key: "x", label: "", render: i => <><button className="btn small" disabled={i.available <= 0} onClick={() => setBorrowing(i)}>借用</button> <button className="btn small" onClick={() => setEditing(i)}>編輯</button></> },
-      ]} />}
-      <h3>借用紀錄</h3>
-      {loans.data && <Table rows={loans.data} empty="沒有借用紀錄。" columns={[
-        { key: "s", label: "狀態", render: l => l.overdue ? <Badge text="已逾期" /> : <Badge text={l.status} tone={l.status === "已歸還" ? "green" : "yellow"} /> },
-        { key: "item", label: "資材", render: l => l.item_name + " × " + l.quantity },
-        { key: "who", label: "借用人", render: l => lk.nameOf(l.borrower_account) },
-        { key: "p", label: "專案", hideSm: true, render: l => l.project_id ? lk.projectName(l.project_id) : "—" },
-        { key: "due", label: "歸還日", render: l => shortDate(l.due_date) },
-        { key: "x", label: "", render: l => l.status === "借出中" ? <button className="btn small" disabled={busy} onClick={() => giveBack(l)}>歸還</button> : null },
-      ]} />}
-      {borrowing && <Modal title={"借用：" + borrowing.name} onClose={() => setBorrowing(null)}>
-        <RecordForm busy={busy} initial={undefined} onCancel={() => setBorrowing(null)} onSubmit={borrow} submitLabel="登記借用" fields={[
-          { name: "quantity", label: "數量（可借 " + borrowing.available + "）", type: "number", required: true },
-          { name: "borrower_account", label: "借用人（空白是自己）", type: "person" }, { name: "project_id", label: "用在哪個專案", type: "project" },
-          { name: "due_date", label: "預計歸還日", type: "date" }, { name: "note", label: "備註", type: "textarea" },
-        ]} />
-      </Modal>}
-      {editing !== undefined && <Modal title={editing ? editing.name : "新增資材"} onClose={() => setEditing(undefined)}>
-        <RecordForm busy={busy} initial={editing || undefined} onCancel={() => setEditing(undefined)} onSubmit={save} fields={[
-          { name: "name", label: "名稱", required: true }, { name: "category", label: "類別" }, { name: "quantity", label: "總數量", type: "number" },
-          { name: "unit", label: "單位" }, { name: "location", label: "存放位置" }, { name: "manager_account", label: "管理人", type: "person" },
-          { name: "photo_url", label: "照片連結", type: "url" }, { name: "note", label: "備註", type: "textarea" },
-        ]} />
-      </Modal>}
-    </Page>
-  );
-}
 
 function Sops() {
   const lk = useLookups();

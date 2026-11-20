@@ -310,8 +310,9 @@ function migrateResource_(m) {
   const ss = m.open('resource');
   const step = '資材';
   m.insert(step, 'inventory', m.rows(ss, 'inventory').filter(r => cellText_(r.name)).map(r => ({
-    name: cellText_(r.name), category: cellText_(r.category), quantity: cellNum_(r.quantity), location: cellText_(r.location),
-    manager_account: m.person(r.manager, step), note: cellText_(r.note),
+    // 舊物資系統都是整批資產；要逐台管理的（筆電、攝影機…）搬完在資材頁按「轉換管理方式」，系統會依數量建立單台資料。
+    name: cellText_(r.name), kind: INVENTORY_KIND.ASSET, track_mode: TRACK_MODE.BATCH, category: cellText_(r.category),
+    quantity: cellNum_(r.quantity), location: cellText_(r.location), manager_account: m.person(r.manager, step), note: cellText_(r.note),
   })), r => normName_(r.name));
   m.insert('SOP', 'sops', m.rows(ss, 'sops').filter(r => cellText_(r.title)).map(r => ({
     title: cellText_(r.title), category: cellText_(r.type), version: '1', file_url: cellText_(r.fileUrl), note: cellText_(r.description),
@@ -328,10 +329,15 @@ function migrateResource_(m) {
     service: cellText_(r.name), url: cellText_(r.url), username: cellText_(r.account), password: cellText_(r.password), note: cellText_(r.period),
   })), r => normName_(r.service + '|' + (r.username || '')));
   // 派遣名冊：補到人員資料（地區、合約）；舊名冊的時薪不搬，排班時再填。帳號要先在帳號中心建好、同步過來，這裡只更新不新增。
+  // 名冊裡是「工讀生」的搬進工讀生名冊（不需要系統帳號）。
   const personnel = m.rows(ss, 'personnel');
+  m.insert('工讀生名冊', 'part_timers', personnel.filter(r => cellText_(r.name) && /工讀/.test(String(r.kind || ''))).map(r => ({
+    name: cellText_(r.name), mobile: cellText_(r.phone), email: cellText_(r.email), region: cellText_(r.area), status: '可合作',
+    note: [cellText_(r.note), cellNum_(r.rating) ? '舊系統評價：' + cellNum_(r.rating) : ''].filter(Boolean).join('；') || null,
+  })), r => normName_(r.name + '|' + (r.mobile || r.email || '')));
   const patches = {};
   let unmatched = 0;
-  personnel.forEach(r => {
+  personnel.filter(r => !/工讀/.test(String(r.kind || ''))).forEach(r => {
     const account = m.person(r.email || r.name, '派遣名冊');
     const p = account && PeopleService.byAccount(account);
     if (!p) { unmatched++; return; }

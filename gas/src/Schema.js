@@ -135,11 +135,24 @@ const TABLES = {
     'account!, week_start:date!, project_id, hours:num!, overtime_reason, blocker') },
 
   // ---- 資材與知識 ----
+  // 資材：kind 資產／耗材；track_mode 逐台（每台一筆 inventory_units）／整批（只記數量）。
+  // 整批資產的 quantity 是總數；耗材的 quantity 是目前庫存（領用扣、入庫加）；逐台的數量由 units 算，不看 quantity。
   inventory: { prefix: 'inv', cache: false, columns: cols_(
-    'name!, category, quantity:num, unit, location, manager_account, photo_url, note') },
+    'name!, category, quantity:num, unit, location, manager_account, photo_url, note, ' +
+    'kind, track_mode, spec, safety_stock:num') },
+  inventory_units: { prefix: 'inu', cache: false, columns: cols_(
+    'inventory_id!, asset_tag!, serial_no, status!, location, purchase_date:date, cost:num, warranty_until:date, note') },
   loans: { prefix: 'lon', cache: false, columns: cols_(
     'inventory_id!, borrower_account!, project_id, quantity:num!, loan_date:date!, due_date:date, ' +
-    'returned_at:dt, status!, note') },
+    'returned_at:dt, status!, note, unit_ids') },
+  // 工讀生名冊（不一定有系統帳號）；合作紀錄每次活動一筆，含評價。
+  part_timers: { prefix: 'ptm', cache: false, columns: cols_(
+    'name!, phone, mobile, email, line_id, region, school, skills, languages, status, account, note') },
+  part_timer_jobs: { prefix: 'ptj', cache: false, columns: cols_(
+    'part_timer_id!, project_id, work_date:date!, role, rating:num, comment, rated_by') },
+  // 耗材進出紀錄：入庫、領用、盤點調整。balance 是異動後庫存，方便對帳。
+  stock_moves: { prefix: 'stm', cache: false, columns: cols_(
+    'inventory_id!, kind!, quantity:num!, balance:num, project_id, account, move_date:date!, note') },
   sops: { prefix: 'sop', cache: false, columns: cols_(
     'title!, category, version, effective_date:date, status!, file_url, project_types, note') },
   media: { prefix: 'med', cache: false, columns: cols_(

@@ -18,7 +18,7 @@ module.exports = (test, { assert }) => {
     // 出勤、CRM 有預設試算表 ID；測試給空表，代表舊表沒有資料。
     env.addSpreadsheet('1ClgEtJGbR02L5gMGUx6PGqOz9B2jlWDHtn4xHTFmf5U');
     env.addSpreadsheet('1IUEnDVRdyJY8hCI4X4TdHGWCNffVdHG8XxiKG3PYvH0');
-    res.insertSheet('personnel').data = [['id', 'name', 'area', 'hourlyRate', 'email'], ['p1', '工讀小陳', '台北', 190, '']];
+    res.insertSheet('personnel').data = [['id', 'name', 'kind', 'area', 'hourlyRate', 'email', 'phone'], ['p1', '工讀小陳', '派遣人員', '台北', 190, '', ''], ['p2', '張育瑄', '工讀生', '台北', 190, 'pt01@impr.com.tw', '0912-345-678']];
   }
 
   test('[搬資料] 沒同步人員時擋下', ({ app }) => {
@@ -52,6 +52,7 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(app.repo_('inventory').findAll()[0].manager_account, 'amy');
     assert.strictEqual(app.PeopleService.byAccount('pt1').region, '台北');
     assert.strictEqual('hourly_wage' in app.PeopleService.byAccount('pt1'), false);
+    assert.deepStrictEqual([...app.repo_('part_timers').findAll().map(x => x.name + '|' + x.mobile)], ['張育瑄|0912-345-678']);
     assert.ok(real.some(r => /找不到對應的活動編號/.test(r.note || '')));
 
     const again = app.migrateAll();

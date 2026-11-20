@@ -45,6 +45,16 @@ call('hazel', 'tender.create', { record: { title: '2027 防詐宣導整合行銷
 call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: b.id, start_date: day(0), end_date: day(21), role: '報到台', hourly_wage: 200 } });
 const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', quantity: 8, unit: '支', location: '倉庫 A' } });
 call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2, project_id: a.id, due_date: day(6) } });
+const nb = call('hazel', 'inventory.create', { record: { name: '華碩筆電', category: '電腦與周邊設備', spec: 'ZenBook 14', quantity: 3, unit: '台', location: '辦公室櫃 B' } });
+call('hazel', 'inventory.setMode', { id: nb.id, expectedUpdatedAt: nb.updated_at, kind: '資產', track_mode: '逐台' });
+const nbUnits = call('hazel', 'inventory.units', { inventory_id: nb.id });
+call('amy', 'loan.borrow', { record: { inventory_id: nb.id, unit_ids: [nbUnits[0].id], project_id: b.id, due_date: day(3) } });
+const badge = call('hazel', 'inventory.create', { record: { name: '識別證套', kind: '耗材', category: '識別證與名牌耗材', quantity: 120, unit: '個', safety_stock: 150 } });
+call('hazel', 'inventory.create', { record: { name: 'A4 影印紙', kind: '耗材', category: '文具', quantity: 20, unit: '包', safety_stock: 5 } });
+call('hazel', 'stock.move', { record: { inventory_id: badge.id, kind: '領用', quantity: 30, project_id: a.id } });
+const ptA = call('hazel', 'partTimer.create', { record: { name: '陳同學', mobile: '0911-222-333', region: '台北', school: '政大外語系', skills: '報到接待、貴賓接待', languages: '英文、日文' } });
+call('hazel', 'partTimer.addJob', { record: { part_timer_id: ptA.id, project_id: a.id, work_date: day(-30), role: '報到台', rating: 5, comment: '主動、細心，英文流利' } });
+call('hazel', 'partTimer.create', { record: { name: '林同學', line_id: 'lin_pt', region: '新北', skills: '會場佈置、搬運' } });
 // 政府標案資料庫（示範幾筆）
 const gov = env.addSpreadsheet('1vKY27NlrPMpUOyq5mqSWgGRiJSHxaB-eDAJEr49mMVk').insertSheet('符合案件');
 gov.data = [['主鍵', '公告日', '機關', '案名', '預算', '截止投標', '公告類型', '案號', '關鍵字群組', '命中關鍵字', '分數', '連結', '首次收錄', '狀態', '負責人', '是否投標', '備註'],

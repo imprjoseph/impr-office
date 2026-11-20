@@ -1,59 +1,14 @@
 /**
- * 資材與知識：資材借還、SOP（版本控制）、媒體名單、案例、帳密大全，以及工時週報。
+ * 資材與知識：SOP（版本控制）、媒體名單、案例、帳密大全，以及工時週報。資材在 InventoryService.js。
  */
 
-const LOAN_STATUS = { OUT: '借出中', RETURNED: '已歸還' };
 const SOP_STATUS = { DRAFT: 'draft', ACTIVE: 'active', SUPERSEDED: 'superseded' };
-const INVENTORY_FIELDS_ = ['name', 'category', 'quantity', 'unit', 'location', 'manager_account', 'photo_url', 'note'];
 const SOP_FIELDS_ = ['title', 'category', 'version', 'effective_date', 'file_url', 'project_types', 'note'];
 const MEDIA_FIELDS_ = ['outlet', 'name', 'title', 'beat', 'phone', 'mobile', 'email', 'line_id', 'last_contact', 'note'];
 const CASE_FIELDS_ = ['title', 'client_name', 'year', 'category', 'summary', 'link', 'project_id'];
 const CREDENTIAL_FIELDS_ = ['service', 'url', 'username', 'password', 'owner', 'note'];
 
 const ResourceService = {
-  /** 資材清單附上目前借出數量與可借數量。 */
-  inventory() {
-    const out = outByItem_();
-    return repo_('inventory').findAll().map(i => Object.assign({}, i, {
-      on_loan: out[i.id] || 0,
-      available: (Number(i.quantity) || 0) - (out[i.id] || 0),
-    }));
-  },
-
-  /** 借用：數量不能超過可借數量；檢查與寫入同一把 lock，兩人同時借最後一台才不會都成功。 */
-  borrow(input, ctx) {
-    const qty = Number(input.quantity);
-    if (!(qty > 0)) throw new AppError(ERROR_CODES.VALIDATION, '借用數量必須大於 0');
-    if (input.due_date && input.due_date < todayIso_()) throw new AppError(ERROR_CODES.VALIDATION, '歸還日不能早於今天');
-    return withScriptLock_(() => {
-      const item = repo_('inventory').findById(input.inventory_id);
-      if (!item) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到資材');
-      const available = (Number(item.quantity) || 0) - (outByItem_()[item.id] || 0);
-      if (qty > available) throw new AppError(ERROR_CODES.VALIDATION, '「' + item.name + '」目前只剩 ' + available + ' ' + (item.unit || '件') + '可借');
-      return repo_('loans').insert(Object.assign({ loan_date: todayIso_() }, input, {
-        borrower_account: input.borrower_account || ctx.account, quantity: qty, status: LOAN_STATUS.OUT,
-      }), ctx.account);
-    });
-  },
-
-  giveBack(id, expected, ctx) {
-    return withScriptLock_(() => {
-      const repo = repo_('loans');
-      const snapshot = loadCurrentForWrite_(repo, id, expected);
-      if (snapshot.record.status !== LOAN_STATUS.OUT) throw new AppError(ERROR_CODES.VALIDATION, '這筆已經歸還了');
-      return repo.writeSnapshot(snapshot, { status: LOAN_STATUS.RETURNED, returned_at: nowIso_() }, ctx.account);
-    });
-  },
-
-  loans() {
-    const today = todayIso_();
-    const items = indexBy_(repo_('inventory').findAll(), 'id');
-    return sortBy_(repo_('loans').findAll(), 'loan_date').reverse().map(l => Object.assign({}, l, {
-      item_name: items[l.inventory_id] ? items[l.inventory_id].name : '',
-      overdue: l.status === LOAN_STATUS.OUT && !!l.due_date && l.due_date < today,
-    }));
-  },
-
   /**
    * 發布 SOP：同名的舊版自動改成 superseded（不刪除），任何時候同一份 SOP 只有一個生效版本，
    * 同仁才不會照著舊版做事。
@@ -77,14 +32,6 @@ const ResourceService = {
       (!s.project_types || !projectType || templateTypes_(s).indexOf(PROJECT_TYPE_ALIASES_[projectType] || projectType) !== -1));
   },
 };
-
-function outByItem_() {
-  const out = {};
-  repo_('loans').findWhere(l => l.status === LOAN_STATUS.OUT).forEach(l => {
-    out[l.inventory_id] = (out[l.inventory_id] || 0) + (Number(l.quantity) || 0);
-  });
-  return out;
-}
 
 const TimesheetService = {
   /**
@@ -140,17 +87,11 @@ function resourceRoutes_() {
     return listCred(p, ctx);
   } };
   return Object.assign(
-    crudRoutes_('inventory', 'inventory', Object.assign({ fields: INVENTORY_FIELDS_, label: '資材' }, internal)),
     crudRoutes_('media', 'media', Object.assign({ fields: MEDIA_FIELDS_, label: '媒體' }, internal)),
     crudRoutes_('case', 'cases', Object.assign({ fields: CASE_FIELDS_, label: '案例' }, internal)),
     sopRoutes,
     credentials,
     {
-      'inventory.withStock': { roles: INTERNAL_ROLES_, handler: () => ResourceService.inventory() },
-      'loan.list': { roles: INTERNAL_ROLES_, handler: () => ResourceService.loans() },
-      'loan.borrow': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
-        ResourceService.borrow(pickAllowed_(p.record || {}, ['inventory_id', 'borrower_account', 'project_id', 'quantity', 'loan_date', 'due_date', 'note'], '借用'), ctx) },
-      'loan.return': { roles: INTERNAL_ROLES_, handler: (p, ctx) => ResourceService.giveBack(...idArgs(p), ctx) },
       'sop.publish': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) => ResourceService.publishSop(...idArgs(p), ctx) },
       'sop.forProjectType': { roles: INTERNAL_ROLES_, handler: p => ResourceService.sopsFor(p.project_type || null) },
     });
