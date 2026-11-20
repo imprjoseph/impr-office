@@ -319,6 +319,7 @@ function migrateResource_(m) {
   })), r => normName_(r.title + '|' + (r.version || '')));
   m.insert('媒體名單', 'media', m.rows(ss, 'media').filter(r => cellText_(r.media) || cellText_(r.name)).map(r => ({
     outlet: cellText_(r.media) || '（未填媒體）', name: cellText_(r.name), title: cellText_(r.title), phone: cellText_(r.phone), email: cellText_(r.email),
+    last_contact: cellDate_(r.lastContact),
   })), r => normName_(r.outlet + '|' + (r.name || '')));
   m.insert('案例', 'cases', m.rows(ss, 'cases').filter(r => cellText_(r.title)).map(r => ({
     title: cellText_(r.title), category: cellText_(r.type), year: cellText_(r.year), link: cellText_(r.fileUrl), summary: cellText_(r.description),

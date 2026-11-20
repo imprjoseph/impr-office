@@ -4,7 +4,7 @@ import { Badge, CrudPage, Loading, Modal, Page, RecordForm, Table, Tabs, shortDa
 
 export default function Resources() {
   const lk = useLookups();
-  const tabs: [string, string][] = [["inventory", "資材借還"], ["sops", "SOP"], ["media", "媒體名單"], ["cases", "案例"]];
+  const tabs: [string, string][] = [["inventory", "資材借還"], ["sops", "SOP"], ["cases", "案例"]];
   if (lk.can("admin")) tabs.push(["credentials", "帳密大全"]);
   const [tab, setTab] = useState("inventory");
   return (
@@ -12,10 +12,6 @@ export default function Resources() {
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
       {tab === "inventory" && <Inventory />}
       {tab === "sops" && <Sops />}
-      {tab === "media" && <CrudPage title="媒體名單" prefix="media" canWrite fields={[
-        { name: "outlet", label: "媒體", required: true }, { name: "name", label: "記者" }, { name: "title", label: "職稱" }, { name: "beat", label: "路線" },
-        { name: "phone", label: "電話" }, { name: "email", label: "Email", type: "email" }, { name: "note", label: "備註", type: "textarea" },
-      ]} columns={[{ key: "outlet", label: "媒體" }, { key: "name", label: "記者" }, { key: "beat", label: "路線", hideSm: true }, { key: "phone", label: "電話" }]} />}
       {tab === "cases" && <CrudPage title="案例" prefix="case" canWrite fields={[
         { name: "title", label: "案例名稱", required: true, full: true }, { name: "client_name", label: "客戶" }, { name: "year", label: "年度" },
         { name: "category", label: "類別" }, { name: "project_id", label: "對應專案", type: "project" }, { name: "link", label: "成果連結", type: "url", full: true },

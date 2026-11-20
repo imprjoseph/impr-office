@@ -3,7 +3,7 @@
  * 用 hash 路由是因為 GitHub Pages 沒有伺服器端改寫，重新整理子頁面才不會 404。
  */
 import { useEffect, useState } from "react";
-import { BarChart3, Briefcase, Building2, CalendarClock, ClipboardList, FileText, Gavel, Home, KeyRound, Landmark, LogOut, Menu, Package,
+import { BarChart3, Briefcase, Building2, CalendarClock, ClipboardList, FileText, Gavel, Home, KeyRound, Landmark, Newspaper, LogOut, Menu, Package,
   Receipt, Settings, Sparkles, Truck, Users, UserRoundCog, X } from "lucide-react";
 import { call, hasValidToken, LOGIN_EVENT, logout, Me } from "./api";
 import { Login, PasswordModal } from "./pages/Login";
@@ -12,6 +12,7 @@ import Dashboard from "./pages/Dashboard";
 import { ProjectDetail, ProjectList } from "./pages/Projects";
 import Tenders from "./pages/Tenders";
 import PublicTenders from "./pages/PublicTenders";
+import Media from "./pages/Media";
 import { Clients, Suppliers } from "./pages/Partners";
 import People from "./pages/People";
 import Expenses from "./pages/Expenses";
@@ -47,6 +48,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
     { path: "clients", label: "客戶", icon: Building2, roles: INTERNAL },
     { path: "suppliers", label: "供應商", icon: UserRoundCog, roles: INTERNAL },
     { path: "public-tenders", label: "公開標案", icon: Landmark, roles: INTERNAL },
+    { path: "media", label: "媒體", icon: Newspaper, roles: INTERNAL },
     { path: "resources", label: "資材與知識", icon: Package, roles: INTERNAL },
   ] },
   { group: "管理", items: [{ path: "admin", label: "系統設定", icon: Settings, roles: ["admin"] }] },
@@ -78,6 +80,7 @@ function Shell() {
       case "projects": return id ? <ProjectDetail id={id} /> : <ProjectList />;
       case "tenders": return <Tenders />;
       case "public-tenders": return <PublicTenders />;
+      case "media": return <Media />;
       case "ai": return <Ai />;
       case "expenses": return <Expenses />;
       case "reports": return <Reports />;

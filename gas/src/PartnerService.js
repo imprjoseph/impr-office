@@ -5,7 +5,8 @@
  * 不寫在前端或某條路由裡，多個入口各自實作遲早會不一致。
  */
 
-const CLIENT_FIELDS_ = ['name', 'tax_id', 'industry', 'address', 'phone', 'website', 'owner_account', 'tags', 'note'];
+const CLIENT_FIELDS_ = ['name', 'tax_id', 'industry', 'address', 'phone', 'website', 'owner_account', 'tags', 'note',
+  'contact_name', 'contact_title', 'contact_phone', 'contact_mobile', 'contact_email'];
 const CONTACT_FIELDS_ = ['client_id', 'supplier_id', 'name', 'title', 'phone', 'email', 'note'];
 const CLIENT_ACTIVITY_FIELDS_ = ['client_id', 'project_id', 'activity_date', 'kind', 'summary', 'owner_account'];
 // avg_rating / rating_count 不開放輸入：只能由專案結案評分重算。

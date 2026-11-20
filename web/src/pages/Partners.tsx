@@ -11,10 +11,16 @@ export function Clients() {
       {tab === "clients" && <CrudPage title="客戶" prefix="client" canWrite onChanged={() => lk.refresh(["clients"])} fields={[
         { name: "name", label: "名稱", required: true, full: true }, { name: "tax_id", label: "統一編號" }, { name: "industry", label: "產業" },
         { name: "phone", label: "電話" }, { name: "website", label: "網站", type: "url" }, { name: "address", label: "地址", full: true },
-        { name: "owner_account", label: "業務負責人", type: "person" }, { name: "tags", label: "標籤" }, { name: "note", label: "備註", type: "textarea" },
+        { name: "owner_account", label: "業務負責人", type: "person" }, { name: "tags", label: "標籤" },
+        { name: "contact_name", label: "窗口姓名" }, { name: "contact_title", label: "窗口職稱" },
+        { name: "contact_phone", label: "窗口電話（含分機）" }, { name: "contact_mobile", label: "窗口手機" },
+        { name: "contact_email", label: "窗口 Email", type: "email", full: true },
+        { name: "note", label: "備註", type: "textarea" },
       ]} columns={[
         { key: "name", label: "客戶", render: c => <><b>{c.name}</b><small className="muted block">{[c.industry, c.tax_id && "統編 " + c.tax_id].filter(Boolean).join("・")}</small></> },
-        { key: "phone", label: "電話", hideSm: true }, { key: "owner", label: "負責人", render: c => lk.nameOf(c.owner_account) },
+        { key: "contact", label: "窗口", render: c => c.contact_name ? <><b>{c.contact_name}</b><small className="muted block">{c.contact_title || ""}</small></> : "—" },
+        { key: "reach", label: "聯絡方式", render: c => <ContactInfo phone={c.contact_phone} mobile={c.contact_mobile} email={c.contact_email} /> },
+        { key: "owner", label: "負責人", hideSm: true, render: c => lk.nameOf(c.owner_account) },
       ]} />}
       {tab === "contacts" && <CrudPage title="聯絡人" prefix="contact" canWrite fields={[
         { name: "name", label: "姓名", required: true }, { name: "title", label: "職稱" }, { name: "client_id", label: "客戶", type: "client" },
@@ -53,4 +59,15 @@ export function Suppliers() {
       { key: "contact", label: "聯絡人", hideSm: true, render: s => (s.contact_name || "—") + (s.contact_phone ? " " + s.contact_phone : "") },
       { key: "rating", label: "評價", num: true, render: s => s.rating_count ? Number(s.avg_rating).toFixed(1) + " ★（" + s.rating_count + "）" : "—" },
     ]} />;
+}
+
+/** 聯絡方式：電話、手機可直接撥打，Email 可直接寄信。 */
+export function ContactInfo({ phone, mobile, email, line }: { phone?: string; mobile?: string; email?: string; line?: string }) {
+  const items = [
+    phone && <a key="p" href={"tel:" + String(phone).replace(/[^\d+#,]/g, "")}>☎ {phone}</a>,
+    mobile && <a key="m" href={"tel:" + String(mobile).replace(/[^\d+]/g, "")}>📱 {mobile}</a>,
+    email && <a key="e" href={"mailto:" + email}>✉ {email}</a>,
+    line && <span key="l">LINE {line}</span>,
+  ].filter(Boolean);
+  return items.length ? <span className="contact-info">{items}</span> : <>—</>;
 }

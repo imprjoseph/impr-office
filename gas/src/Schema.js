@@ -54,7 +54,9 @@ const TABLES = {
     'account!, name!, email, dept, manager_account, kind!, phone, region, ' +
     'contract_start:date, contract_end:date, rating:num, active:bool, note') },
   clients: { prefix: 'cli', cache: true, columns: cols_(
-    'name!, tax_id, industry, address, phone, website, owner_account, tags, note') },
+    'name!, tax_id, industry, address, phone, website, owner_account, tags, note, ' +
+    // 主要窗口直接放在客戶資料上，打開客戶就看得到；其他聯絡人放 contacts。
+    'contact_name, contact_title, contact_phone, contact_mobile, contact_email') },
   contacts: { prefix: 'con', cache: false, columns: cols_(
     'client_id, supplier_id, name!, title, phone, email, note') },
   client_activities: { prefix: 'cac', cache: false, columns: cols_(
@@ -139,7 +141,7 @@ const TABLES = {
   sops: { prefix: 'sop', cache: false, columns: cols_(
     'title!, category, version, effective_date:date, status!, file_url, project_types, note') },
   media: { prefix: 'med', cache: false, columns: cols_(
-    'outlet!, name, title, beat, phone, email, note') },
+    'outlet!, name, title, beat, phone, mobile, email, line_id, last_contact:date, note') },
   cases: { prefix: 'cas', cache: false, columns: cols_(
     'title!, client_name, year, category, summary, link, project_id') },
   // 帳密大全：只有 admin 讀得到（見 ResourceService）。

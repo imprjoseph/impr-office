@@ -6,7 +6,7 @@ const LOAN_STATUS = { OUT: '借出中', RETURNED: '已歸還' };
 const SOP_STATUS = { DRAFT: 'draft', ACTIVE: 'active', SUPERSEDED: 'superseded' };
 const INVENTORY_FIELDS_ = ['name', 'category', 'quantity', 'unit', 'location', 'manager_account', 'photo_url', 'note'];
 const SOP_FIELDS_ = ['title', 'category', 'version', 'effective_date', 'file_url', 'project_types', 'note'];
-const MEDIA_FIELDS_ = ['outlet', 'name', 'title', 'beat', 'phone', 'email', 'note'];
+const MEDIA_FIELDS_ = ['outlet', 'name', 'title', 'beat', 'phone', 'mobile', 'email', 'line_id', 'last_contact', 'note'];
 const CASE_FIELDS_ = ['title', 'client_name', 'year', 'category', 'summary', 'link', 'project_id'];
 const CREDENTIAL_FIELDS_ = ['service', 'url', 'username', 'password', 'owner', 'note'];
 

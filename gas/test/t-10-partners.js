@@ -48,4 +48,14 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(sup.rating_count, 1);
     assert.throws(() => call('hazel', 'supplier.update', { id: sup.id, expectedUpdatedAt: sup.updated_at, patch: { avg_rating: 5 } }), e => /不接受/.test(e.message));
   });
+  test('[客戶／媒體] 客戶存主要窗口與聯絡方式；媒體存手機、LINE、最近聯絡日', ({ call }) => {
+    const c = call('hazel', 'client.create', { record: { name: '國民健康署', contact_name: '王小明', contact_title: '科長', contact_phone: '02-2522-0888#123', contact_mobile: '0912-345-678', contact_email: 'wang@hpa.gov.tw' } });
+    const got = call('amy', 'client.list').find(x => x.id === c.id);
+    assert.strictEqual(got.contact_title, '科長');
+    assert.strictEqual(got.contact_mobile, '0912-345-678');
+    const m = call('hazel', 'media.create', { record: { outlet: '聯合報', name: '李記者', title: '記者', beat: '醫療健康', mobile: '0922-000-111', line_id: 'lee_news', last_contact: '2026-11-18' } });
+    const gm = call('amy', 'media.list').find(x => x.id === m.id);
+    assert.strictEqual(gm.line_id, 'lee_news');
+    assert.strictEqual(gm.last_contact, '2026-11-18');
+  });
 };
