@@ -62,7 +62,7 @@ function schemaSignature_() {
 function ensureTemplateSeed_() {
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty('TEMPLATE_SEED_VERSION') === TEMPLATE_SEED_VERSION_) return;
-  withScriptLock_(() => seedTypeTemplates_('system'));
+  withScriptLock_(() => { retireOldTemplates_(); seedTypeTemplates_('system'); });
   props.setProperty('TEMPLATE_SEED_VERSION', TEMPLATE_SEED_VERSION_);
 }
 

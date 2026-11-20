@@ -77,29 +77,55 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('pt1', 'project.list'), e => e.code === 'FORBIDDEN_ERROR');
     assert.throws(() => call('pt1', 'tender.list'), e => e.code === 'FORBIDDEN_ERROR');
   });
-  test('[專案] 依活動類型代入參考工作：通用（含基本事項）＋該類型；頒獎典禮自動改為典禮；類型要在清單內', ({ app, call }) => {
-    call('boss', 'template.create', { record: { category: '合約行政', title: '確認合約與報價', offset_days: -60, priority: '關鍵', sort: 1 } });
-    assert.ok(call('boss', 'template.seedTypes', {}).added > 60);
-    const typed = app.repo_('task_templates').findAll().filter(t => t.project_types);
-    assert.ok(typed.some(t => t.project_types === '記者會') && typed.some(t => t.project_types === '典禮'));
-    const { project, tasks } = call('hazel', 'project.create', { record: { name: '新品記者會', project_type: '記者會', start_date: '2027-03-20' }, applyTemplate: true });
+  test('[專案] 依活動類型代入參考工作：追蹤表基本事項（依適用類型）＋該類型；頒獎典禮自動改為典禮；類型要在清單內', ({ app, call }) => {
+    assert.ok(call('boss', 'template.seedTypes', {}).added > 80);
+    const tpl = app.repo_('task_templates').findAll();
+    assert.ok(tpl.some(t => t.title === '確認合約、報價與工作範圍' && !t.project_types && t.tip === '追加需求需留存書面紀錄'));
+
+    const { tasks } = call('hazel', 'project.create', { record: { name: '新品記者會', project_type: '記者會', start_date: '2027-03-20' }, applyTemplate: true });
     const titles = tasks.map(t => t.title);
-    assert.ok(titles.includes('確認合約與報價'));
-    ['場地場勘', '進度會議（T-14）', '燈光需求', '音響測試', '軟硬體測試'].forEach(k => assert.ok(titles.some(t => t.indexOf(k) === 0), k));
-    assert.ok(titles.includes('撰寫新聞稿並送客戶確認'));
-    assert.ok(!titles.includes('全程彩排'));
-    assert.strictEqual(tasks.find(t => t.title === '撰寫新聞稿並送客戶確認').due_date, '2027-03-13');
+    ['確認合約、報價與工作範圍', '完成第一次場勘', '進度會議（T-14）', '確認舞台、燈光、音響及投影', '燈光、音響進場架設與測試',
+      '軟硬體測試與備援（簡報電腦、投影、報到系統）', '完成新聞稿及採訪通知', '擬定記者會流程與發言口徑'].forEach(k => assert.ok(titles.includes(k), k));
+    assert.ok(!titles.includes('報名系統上線'));
+    assert.ok(!titles.includes('表演節目安排'));
+    assert.strictEqual(new Set(titles).size, titles.length);
+    const press = tasks.find(t => t.title === '完成新聞稿及採訪通知');
+    assert.strictEqual(press.due_date, '2027-03-13');
+    assert.match(press.note, /完成判斷：主辦確認\n提醒：需確認媒體聯訪對象/);
+
+    const v = call('hazel', 'project.create', { record: { name: '小琉球訪查', project_type: '訪查', start_date: '2027-04-01' }, applyTemplate: true });
+    const vt = v.tasks.map(t => t.title);
+    assert.ok(vt.includes('確認合約、報價與工作範圍') && vt.includes('確認航班與接送需求') && vt.includes('訪查成果報告'));
+    assert.ok(!vt.includes('完成第一次場勘') && !vt.includes('確認舞台、燈光、音響及投影'));
+
     const c = call('hazel', 'project.create', { record: { name: '年度頒獎', project_type: '頒獎典禮', start_date: '2027-05-01' }, applyTemplate: true });
     assert.strictEqual(c.project.project_type, '典禮');
-    assert.ok(c.tasks.some(t => t.title === '全程彩排'));
+    assert.ok(c.tasks.some(t => t.title === '完成進場及總彩排') && c.tasks.some(t => t.title === '表演節目安排'));
     const none = call('hazel', 'project.create', { record: { name: '未分類', start_date: '2027-05-01' }, applyTemplate: true });
-    assert.strictEqual(none.tasks[0].title, '確認合約與報價');
-    assert.ok(none.tasks.every(t => !t.title.includes('新聞稿')));
-    assert.strictEqual(none.tasks.length, 1 + app.BASIC_REFERENCE_TASKS_.length);
+    assert.ok(none.tasks.some(t => t.title === '完成第一次場勘'));
     assert.throws(() => call('hazel', 'project.create', { record: { name: '亂填', project_type: '派對' } }), /活動類型只能是/);
     assert.strictEqual(call('boss', 'template.seedTypes', {}).added, 0);
     assert.ok(call('hazel', 'project.types', {}).includes('典禮'));
     assert.ok(!call('hazel', 'project.types', {}).includes('頒獎典禮'));
+  });
+
+  test('[範本] 升級：上一版系統加入且沒人改過的基本事項移除、改用追蹤表項目；有人改過的保留', ({ app, properties }) => {
+    const repo = app.repo_('task_templates');
+    app.withScriptLock_(() => repo.insertMany([
+      { category: '場地', title: '場地場勘（動線、電源、網路、卸貨、無障礙）', offset_days: -45 },
+      { category: '燈光', title: '燈光需求確認與廠商預約', offset_days: -30 },
+      { project_types: '典禮', category: '現場執行', title: '全程彩排', offset_days: -1 },
+    ], 'system'));
+    const kept = app.withScriptLock_(() => repo.insert({ category: '音響', title: '音響測試與麥克風配置', offset_days: -1 }, 'system'));
+    app.withScriptLock_(() => repo.updateMany({ [kept.id]: { tip: '主管加的提醒' } }, 'boss'));
+    properties.TEMPLATE_SEED_VERSION = '2';
+    app.ensureTemplateSeed_();
+    const titles = repo.findAll().map(t => t.title);
+    assert.ok(!titles.includes('場地場勘（動線、電源、網路、卸貨、無障礙）'));
+    assert.ok(!titles.includes('燈光需求確認與廠商預約'));
+    assert.ok(!titles.includes('全程彩排'));
+    assert.ok(titles.includes('音響測試與麥克風配置'));
+    assert.ok(titles.includes('完成第一次場勘'));
   });
   test('[範本] 參考工作項目自動補：版本變了才補、只補缺的、不重複補主管刪掉以外的', ({ app, properties }) => {
     properties.TEMPLATE_SEED_VERSION = '0';

@@ -30,7 +30,8 @@ export function ProjectList() {
   const templates = useLoad<any[]>(creating ? "template.list" : null);
   const typesOf = (t: any) => String(t.project_types || "").split(/[,、，]/).map((s: string) => s.trim()).filter(Boolean);
   const common = (templates.data || []).filter(t => !typesOf(t).length);
-  const typed = (templates.data || []).filter(t => newType && typesOf(t).includes(newType));
+  // 沒選類型時後端當成「其他」
+  const typed = (templates.data || []).filter(t => typesOf(t).includes(newType || "其他"));
   const [stage, setStage] = useState("進行中");
   const [q, setQ] = useState("");
   const { busy, run } = useAction();
@@ -67,8 +68,8 @@ export function ProjectList() {
               <label className="check"><input type="checkbox" checked={applyTemplate} onChange={e => setApplyTemplate(e.target.checked)} />
                 依活動類型代入參考工作項目（需填活動日期）</label>
               {applyTemplate && templates.data && <p className="muted small" style={{ margin: "6px 0 0 26px" }}>
-                將產生 {common.length + typed.length} 項：通用 {common.length} 項{newType ? "＋" + newType + " " + typed.length + " 項" : "（選擇活動類型可再加入該類型的參考工作）"}
-                {typed.length > 0 && <>：{typed.slice(0, 4).map(t => t.title).join("、")}{typed.length > 4 ? "…" : ""}</>}
+                將產生 {common.length + typed.length} 項：每種專案都有的 {common.length} 項＋{newType || "其他（未選類型）"}適用的 {typed.length} 項
+                {!newType && "；選擇活動類型可換成該類型的參考工作"}
               </p>}
             </>} />
         </Modal>

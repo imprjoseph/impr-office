@@ -131,7 +131,9 @@ const TaskService = {
 
   /** 通用範本＋該活動類型的參考工作項目。 */
   createFromTemplates(project, ctx) {
-    const templates = sortBy_(repo_('task_templates').findAll().filter(t => templateAppliesTo_(t, project.project_type)), 'sort');
+    // 沒填活動類型的專案當成「其他」：通用工作＋現場活動的基本事項都產生，寧可多不可漏。
+    const type = project.project_type || '其他';
+    const templates = sortBy_(repo_('task_templates').findAll().filter(t => templateAppliesTo_(t, type)), 'sort');
     return this.insertMany_(templates.map(t => ({
       project_id: project.id,
       category: t.category,
@@ -139,7 +141,7 @@ const TaskService = {
       due_date: addDays_(project.start_date, Number(t.offset_days) || 0),
       priority: t.priority || '中',
       owner_account: project.pm_account,
-      note: t.done_criteria ? '完成判斷：' + t.done_criteria : null,
+      note: [t.done_criteria ? '完成判斷：' + t.done_criteria : '', t.tip ? '提醒：' + t.tip : ''].filter(Boolean).join('\n') || null,
     })), ctx);
   },
 
