@@ -87,7 +87,9 @@ const TABLES = {
     'meeting_id, note') },
   // offset_days 以活動日為 T 日，T-60 存 -60。
   task_templates: { prefix: 'tpl', cache: true, columns: cols_(
-    'category!, title!, offset_days:num!, priority, role, done_criteria, tip, sort:num') },
+    'category!, title!, offset_days:num!, priority, role, done_criteria, tip, sort:num, ' +
+    // 適用的活動類型（頓號分隔）；空白＝所有類型都套用
+    'project_types') },
   meetings: { prefix: 'mtg', cache: false, columns: cols_(
     'project_id, title!, meeting_date:date!, attendees, notes') },
 

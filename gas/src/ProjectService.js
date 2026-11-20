@@ -24,7 +24,7 @@ const TASK_FIELDS_ = ['category', 'title', 'owner_account', 'assistant_account',
   'status', 'progress_note', 'next_step', 'blocker', 'waiting_on', 'note'];
 // 改到這些欄位才算「有更新進度」：只改備註不應該讓久未更新的提醒消失。
 const TASK_PROGRESS_FIELDS_ = ['status', 'progress_note', 'next_step', 'blocker', 'waiting_on'];
-const TEMPLATE_FIELDS_ = ['category', 'title', 'offset_days', 'priority', 'role', 'done_criteria', 'tip', 'sort'];
+const TEMPLATE_FIELDS_ = ['category', 'title', 'offset_days', 'priority', 'role', 'done_criteria', 'tip', 'sort', 'project_types'];
 
 const ProjectService = {
   /** 能不能看這個專案的財務欄位：財務角色，或是這個專案的 PM。 */
@@ -72,6 +72,7 @@ const ProjectService = {
    */
   create(data, ctx, options) {
     const record = Object.assign({ stage: '規劃中', pm_account: ctx.account }, data);
+    if ('project_type' in record) record.project_type = normalizeProjectType_(record.project_type);
     if (record.start_date && record.end_date) assertDateRange_(record.start_date, record.end_date);
     return withScriptLock_(() => {
       const projects = repo_('projects').findAll({ includeDeleted: true });
@@ -91,6 +92,7 @@ const ProjectService = {
     return withScriptLock_(() => {
       const repo = repo_('projects');
       const snapshot = loadCurrentForWrite_(repo, id, expected);
+      if ('project_type' in patch) patch = Object.assign({}, patch, { project_type: normalizeProjectType_(patch.project_type) });
       const finance = PROJECT_FINANCE_FIELDS_.filter(f => f in patch);
       if (finance.length && !this.canSeeFinance(ctx, snapshot.record)) {
         throw new AppError(ERROR_CODES.FORBIDDEN, '只有專案 PM 或財務角色可以修改：' + finance.join('、'));
@@ -127,8 +129,9 @@ const TaskService = {
     });
   },
 
+  /** 通用範本＋該活動類型的參考工作項目。 */
   createFromTemplates(project, ctx) {
-    const templates = sortBy_(repo_('task_templates').findAll(), 'sort');
+    const templates = sortBy_(repo_('task_templates').findAll().filter(t => templateAppliesTo_(t, project.project_type)), 'sort');
     return this.insertMany_(templates.map(t => ({
       project_id: project.id,
       category: t.category,
@@ -307,6 +310,9 @@ function projectRoutes_() {
       MeetingService.createWithTasks(pickAllowed_(p.meeting || {}, ['project_id', 'title', 'meeting_date', 'attendees', 'notes'], '會議'),
         requireArray_(p, 'tasks').map((t, i) => pickAllowed_(t, TASK_FIELDS_.concat(['project_id']), '第 ' + (i + 1) + ' 筆待辦')), ctx) },
     'meeting.list': { roles: INTERNAL_ROLES_, handler: () => sortBy_(repo_('meetings').findAll(), 'meeting_date').reverse() },
+    'project.types': { roles: INTERNAL_ROLES_, handler: () => PROJECT_TYPES },
+    'template.seedTypes': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) =>
+      ({ added: withScriptLock_(() => seedTypeTemplates_(ctx.account)) }) },
   }, crudRoutes_('template', 'task_templates', {
     read: INTERNAL_ROLES_, write: [ROLES.ADMIN, ROLES.MANAGER], fields: TEMPLATE_FIELDS_, label: '工作範本' }));
 }

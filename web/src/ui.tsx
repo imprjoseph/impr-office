@@ -187,7 +187,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   );
 }
 
-export type FieldType = "text" | "number" | "date" | "time" | "textarea" | "select" | "person" | "project" | "client" | "supplier" | "checkbox" | "url" | "email";
+export type FieldType = "text" | "number" | "date" | "time" | "textarea" | "select" | "person" | "project" | "client" | "supplier" | "checkbox" | "url" | "email" | "multi";
 export interface Field { name: string; label: string; type?: FieldType; options?: string[] | [string, string][]; required?: boolean; hint?: string; full?: boolean; filter?: (row: any) => boolean }
 
 export function FieldInput({ f, value, onChange }: { f: Field; value: any; onChange: (v: any) => void }) {
@@ -205,6 +205,20 @@ export function FieldInput({ f, value, onChange }: { f: Field; value: any; onCha
     case "number": return <input {...common} type="number" inputMode="decimal" step="any" value={value ?? ""} onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))} />;
     case "date": case "time": case "url": case "email": return <input {...common} type={f.type} value={value ?? ""} onChange={e => onChange(e.target.value)} />;
     case "checkbox": return <input {...common} type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} />;
+    // 複選：存成頓號分隔的文字（例如「論壇、研討會」）
+    case "multi": {
+      const picked = String(value || "").split(/[,、，]/).map(s => s.trim()).filter(Boolean);
+      const toggle = (o: string) => {
+        const next = picked.includes(o) ? picked.filter(x => x !== o) : [...picked, o];
+        onChange(next.length ? next.join("、") : null);
+      };
+      return (
+        <div className="chips" id={id}>{(f.options || []).map(o => {
+          const v = Array.isArray(o) ? o[0] : o, l = Array.isArray(o) ? o[1] : o;
+          return <label key={v} className={"chip" + (picked.includes(v) ? " on" : "")}><input type="checkbox" checked={picked.includes(v)} onChange={() => toggle(v)} />{l}</label>;
+        })}</div>
+      );
+    }
     case "select": return (
       <select {...common} value={value ?? ""} onChange={e => onChange(e.target.value || null)}>
         <option value="">{f.required ? "請選擇" : "（不指定）"}</option>

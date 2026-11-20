@@ -2,11 +2,14 @@ import { useState } from "react";
 import { call } from "../api";
 import { Badge, Field, Loading, Modal, Page, RecordForm, Table, Tabs, money, pct, shortDate, useAction, useLoad, useLookups } from "../ui";
 
+// 活動類型：和後端 PROJECT_TYPES 一致（「頒獎典禮」已改為「典禮」）
+export const PROJECT_TYPES = ["論壇", "研討會", "記者會", "展覽", "典禮", "訪查", "媒體宣傳", "教育訓練", "尾牙", "其他"];
+
 const PROJECT_FIELDS: Field[] = [
   { name: "name", label: "專案名稱", required: true, full: true },
   { name: "client_id", label: "客戶", type: "client" },
   { name: "client_name", label: "客戶／主辦單位（顯示名稱）" },
-  { name: "project_type", label: "活動類型", type: "select", options: ["論壇", "研討會", "記者會", "展覽", "頒獎典禮", "訪查", "媒體宣傳", "教育訓練", "尾牙", "其他"] },
+  { name: "project_type", label: "活動類型", type: "select", options: PROJECT_TYPES, hint: "依類型代入參考工作項目" },
   { name: "venue", label: "地點" },
   { name: "start_date", label: "活動日期", type: "date", hint: "套用範本時，工作截止日以這天為 T 日" },
   { name: "end_date", label: "結束日期", type: "date" },
@@ -23,6 +26,11 @@ export function ProjectList() {
   const { data, error, loading, reload } = useLoad<any[]>("project.list");
   const [creating, setCreating] = useState(false);
   const [applyTemplate, setApplyTemplate] = useState(true);
+  const [newType, setNewType] = useState("");
+  const templates = useLoad<any[]>(creating ? "template.list" : null);
+  const typesOf = (t: any) => String(t.project_types || "").split(/[,、，]/).map((s: string) => s.trim()).filter(Boolean);
+  const common = (templates.data || []).filter(t => !typesOf(t).length);
+  const typed = (templates.data || []).filter(t => newType && typesOf(t).includes(newType));
   const [stage, setStage] = useState("進行中");
   const [q, setQ] = useState("");
   const { busy, run } = useAction();
@@ -54,7 +62,15 @@ export function ProjectList() {
         <Modal title="新增專案" onClose={() => setCreating(false)}>
           <RecordForm fields={PROJECT_FIELDS.concat(lk.can("admin", "manager", "accountant") ? FINANCE_FIELDS : [])} initial={undefined}
             onSubmit={create} onCancel={() => setCreating(false)} busy={busy} submitLabel="建立"
-            extra={<label className="check"><input type="checkbox" checked={applyTemplate} onChange={e => setApplyTemplate(e.target.checked)} /> 依 T-60 工作範本自動產生工作（需填活動日期）</label>} />
+            onValuesChange={(name, v) => { if (name === "project_type") setNewType(v || ""); }}
+            extra={<>
+              <label className="check"><input type="checkbox" checked={applyTemplate} onChange={e => setApplyTemplate(e.target.checked)} />
+                依活動類型代入參考工作項目（需填活動日期）</label>
+              {applyTemplate && templates.data && <p className="muted small" style={{ margin: "6px 0 0 26px" }}>
+                將產生 {common.length + typed.length} 項：通用 {common.length} 項{newType ? "＋" + newType + " " + typed.length + " 項" : "（選擇活動類型可再加入該類型的參考工作）"}
+                {typed.length > 0 && <>：{typed.slice(0, 4).map(t => t.title).join("、")}{typed.length > 4 ? "…" : ""}</>}
+              </p>}
+            </>} />
         </Modal>
       )}
     </Page>

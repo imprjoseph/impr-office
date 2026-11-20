@@ -45,7 +45,10 @@ function setupDatabase() {
 /** 建立全部分頁與表頭。已存在的分頁只補缺少的欄位、不刪不改既有資料。 */
 function setupSheets() {
   const ss = getSpreadsheet_();
-  return Object.keys(TABLES).map(name => ensureSheet_(ss, TABLES[name]));
+  const result = Object.keys(TABLES).map(name => ensureSheet_(ss, TABLES[name]));
+  // 各活動類型的參考工作項目：範本表還沒有任何「指定類型」的範本時才寫入，之後以主管增修的為準。
+  if (!repo_('task_templates').findAll().some(t => templateTypes_(t).length)) seedTypeTemplates_('system');
+  return result;
 }
 
 function schemaSignature_() {

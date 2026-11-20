@@ -77,4 +77,24 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('pt1', 'project.list'), e => e.code === 'FORBIDDEN_ERROR');
     assert.throws(() => call('pt1', 'tender.list'), e => e.code === 'FORBIDDEN_ERROR');
   });
+  test('[專案] 依活動類型代入參考工作：通用＋該類型；頒獎典禮自動改為典禮；類型要在清單內', ({ app, call }) => {
+    call('boss', 'template.create', { record: { category: '合約行政', title: '確認合約與報價', offset_days: -60, priority: '關鍵', sort: 1 } });
+    const typed = app.repo_('task_templates').findAll().filter(t => t.project_types);
+    assert.ok(typed.some(t => t.project_types === '記者會') && typed.some(t => t.project_types === '典禮'));
+    const { project, tasks } = call('hazel', 'project.create', { record: { name: '新品記者會', project_type: '記者會', start_date: '2027-03-20' }, applyTemplate: true });
+    const titles = tasks.map(t => t.title);
+    assert.ok(titles.includes('確認合約與報價'));
+    assert.ok(titles.includes('撰寫新聞稿並送客戶確認'));
+    assert.ok(!titles.includes('全程彩排'));
+    assert.strictEqual(tasks.find(t => t.title === '撰寫新聞稿並送客戶確認').due_date, '2027-03-13');
+    const c = call('hazel', 'project.create', { record: { name: '年度頒獎', project_type: '頒獎典禮', start_date: '2027-05-01' }, applyTemplate: true });
+    assert.strictEqual(c.project.project_type, '典禮');
+    assert.ok(c.tasks.some(t => t.title === '全程彩排'));
+    const none = call('hazel', 'project.create', { record: { name: '未分類', start_date: '2027-05-01' }, applyTemplate: true });
+    assert.deepStrictEqual(none.tasks.map(t => t.title), ['確認合約與報價']);
+    assert.throws(() => call('hazel', 'project.create', { record: { name: '亂填', project_type: '派對' } }), /活動類型只能是/);
+    assert.strictEqual(call('boss', 'template.seedTypes', {}).added, 0);
+    assert.ok(call('hazel', 'project.types', {}).includes('典禮'));
+    assert.ok(!call('hazel', 'project.types', {}).includes('頒獎典禮'));
+  });
 };

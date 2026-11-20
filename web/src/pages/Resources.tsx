@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { call } from "../api";
+import { PROJECT_TYPES } from "./Projects";
 import { Badge, CrudPage, Loading, Modal, Page, RecordForm, Table, Tabs, shortDate, useAction, useLoad, useLookups } from "../ui";
 
 export default function Resources() {
@@ -110,7 +111,7 @@ function Sops() {
       {editing !== undefined && <Modal title={editing ? editing.title : "新增 SOP（草稿）"} onClose={() => setEditing(undefined)}>
         <RecordForm busy={busy} initial={editing || undefined} onCancel={() => setEditing(undefined)} onSubmit={save} fields={[
           { name: "title", label: "名稱", required: true, full: true }, { name: "version", label: "版本" }, { name: "category", label: "類別" },
-          { name: "effective_date", label: "生效日", type: "date" }, { name: "project_types", label: "適用活動類型（逗號分隔，空白＝全部）" },
+          { name: "effective_date", label: "生效日", type: "date" }, { name: "project_types", label: "適用活動類型（不勾＝全部）", type: "multi", options: PROJECT_TYPES, full: true },
           { name: "file_url", label: "檔案連結（雲端硬碟）", type: "url", full: true }, { name: "note", label: "備註", type: "textarea" },
         ]} />
       </Modal>}

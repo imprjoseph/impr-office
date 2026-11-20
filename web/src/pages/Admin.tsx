@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { call } from "../api";
 import { CrudPage, Loading, Page, Table, Tabs, useAction, useLoad } from "../ui";
+import { PROJECT_TYPES } from "./Projects";
 
 export default function Admin() {
   const [tab, setTab] = useState("settings");
@@ -9,13 +10,15 @@ export default function Admin() {
       <Tabs tabs={[["settings", "設定值"], ["migrate", "搬舊資料"], ["templates", "工作範本"], ["holidays", "假日"], ["devices", "打卡設備"], ["audit", "稽核紀錄"], ["ai", "AI 用量"]]} value={tab} onChange={setTab} />
       {tab === "settings" && <Settings />}
       {tab === "migrate" && <Migrate />}
-      {tab === "templates" && <CrudPage title="工作範本（T-60）" sub="新專案或標案得標時，依活動日期自動產生這些工作；offset 以活動日為 T 日，T-60 填 -60。" prefix="template" canWrite fields={[
+      {tab === "templates" && <CrudPage title="工作範本（T-60）" sub="新專案或標案得標時，依活動日期自動產生這些工作；offset 以活動日為 T 日，T-60 填 -60。「適用類型」空白是通用工作（每種活動都會產生），有勾選的只在該類型的專案產生。" prefix="template" canWrite fields={[
         { name: "category", label: "工作分類", required: true }, { name: "title", label: "標準工作項目", required: true, full: true },
         { name: "offset_days", label: "期限（T 日加減天數）", type: "number", required: true }, { name: "priority", label: "重要性", type: "select", options: ["關鍵", "高", "中", "低"] },
         { name: "role", label: "建議負責角色" }, { name: "sort", label: "排序", type: "number" },
+        { name: "project_types", label: "適用類型（不勾＝所有類型）", type: "multi", options: PROJECT_TYPES, full: true },
         { name: "done_criteria", label: "完成判斷", type: "textarea" }, { name: "tip", label: "實務提醒", type: "textarea" },
       ]} columns={[
         { key: "offset_days", label: "期限", render: t => "T" + (t.offset_days >= 0 ? "+" : "") + t.offset_days },
+        { key: "types", label: "適用類型", render: t => t.project_types || "通用" },
         { key: "category", label: "分類" }, { key: "title", label: "工作項目" }, { key: "priority", label: "重要性", hideSm: true },
       ]} />}
       {tab === "holidays" && <CrudPage title="假日" sub="HOLIDAY 放假、WORKDAY 補班；沒列的日子依週一到週五判斷。" prefix="holiday" canWrite fields={[

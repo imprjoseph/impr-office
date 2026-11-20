@@ -46,7 +46,7 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(t.owner_account, 'amy');
     assert.strictEqual(t.assistant_account, 'hazel');
     assert.strictEqual(t.due_date, '2026-12-01');
-    assert.deepStrictEqual([...app.repo_('task_templates').findAll().map(x => x.offset_days)], [-60, 14]);
+    assert.deepStrictEqual([...app.repo_('task_templates').findAll().filter(x => !x.project_types).map(x => x.offset_days)], [-60, 14]);
     assert.deepStrictEqual([...app.repo_('suppliers').findAll().map(s => s.name)], ['富立音響']);
     assert.strictEqual(app.repo_('tenders').findAll()[0].owner_account, 'hazel');
     assert.strictEqual(app.repo_('inventory').findAll()[0].manager_account, 'amy');

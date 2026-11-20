@@ -74,7 +74,7 @@ const ResourceService = {
   /** 專案類型適用的生效 SOP：project_types 留空代表所有類型都適用。 */
   sopsFor(projectType) {
     return repo_('sops').findWhere(s => s.status === SOP_STATUS.ACTIVE &&
-      (!s.project_types || !projectType || String(s.project_types).split(/[,、，]/).map(x => x.trim()).indexOf(projectType) !== -1));
+      (!s.project_types || !projectType || templateTypes_(s).indexOf(PROJECT_TYPE_ALIASES_[projectType] || projectType) !== -1));
   },
 };
 
