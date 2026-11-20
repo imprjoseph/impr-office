@@ -150,6 +150,7 @@ function Tasks({ project, tasks, options, reload }: { project: any; tasks: any[]
   const lk = useLookups();
   const [editing, setEditing] = useState<any | null | undefined>(undefined);
   const [filter, setFilter] = useState("open");
+  const [importing, setImporting] = useState(false);
   const { busy, run } = useAction();
   const rows = tasks.filter(t => filter === "all" || (filter === "mine" ? t.owner_account === lk.me.account : !["已完成", "取消"].includes(t.status)));
   const save = async (values: any) => {
@@ -172,8 +173,17 @@ function Tasks({ project, tasks, options, reload }: { project: any; tasks: any[]
       <div className="toolbar">
         <Tabs tabs={[["open", "未完成"], ["mine", "我的"], ["all", "全部"]]} value={filter} onChange={setFilter} />
         <span className="spacer" />
+        <button className="btn" onClick={() => setImporting(true)}>代入參考工作</button>
         <button className="btn primary" onClick={() => setEditing(null)}>＋ 新增工作</button>
       </div>
+      {tasks.length === 0 && (
+        <div className="card hint-card">
+          <b>這個專案還沒有工作。</b>
+          <span className="muted">可以依活動類型「{project.project_type || "其他"}」代入參考工作項目，再勾選要用的。</span>
+          <button className="btn primary" onClick={() => setImporting(true)}>代入參考工作</button>
+        </div>
+      )}
+      {importing && <TemplateImport project={project} onClose={() => setImporting(false)} onDone={() => { setImporting(false); reload(); }} />}
       <Table rows={rows} onRow={t => setEditing(t)} empty="沒有工作。" columns={[
         { key: "light", label: "燈號", render: t => <Badge text={t.light} /> },
         { key: "title", label: "工作", render: t => <><b>{t.title}</b><small className="muted block">{t.code}・{t.category || "未分類"}{t.next_step ? "・下一步：" + t.next_step : ""}</small></> },
@@ -192,6 +202,51 @@ function Tasks({ project, tasks, options, reload }: { project: any; tasks: any[]
         </Modal>
       )}
     </>
+  );
+}
+
+/** 專案建立後再代入參考工作：列出適用的範本與截止日，已有的自動不勾，同仁勾選後加入。 */
+function TemplateImport({ project, onClose, onDone }: { project: any; onClose: () => void; onDone: () => void }) {
+  const { data, error, loading } = useLoad<any>("task.templatePreview", { project_id: project.id });
+  const [picked, setPicked] = useState<Record<string, boolean> | null>(null);
+  const { busy, run } = useAction();
+  const items: any[] = data?.items || [];
+  const sel = picked || Object.fromEntries(items.filter(i => !i.exists).map(i => [i.template_id, true]));
+  const count = items.filter(i => sel[i.template_id] && !i.exists).length;
+  const toggle = (id: string) => setPicked({ ...sel, [id]: !sel[id] });
+  const all = (on: boolean) => setPicked(Object.fromEntries(items.filter(i => !i.exists).map(i => [i.template_id, on])));
+  const add = async () => {
+    const ids = items.filter(i => sel[i.template_id] && !i.exists).map(i => i.template_id);
+    const r = await run(() => call<any[]>("task.addFromTemplates", { project_id: project.id, template_ids: ids }), "已加入 " + ids.length + " 項工作");
+    if (r) onDone();
+  };
+  return (
+    <Modal title="代入參考工作" onClose={onClose} wide>
+      <Loading error={error} loading={loading && !data} />
+      {data && <>
+        <p className="muted small">
+          活動類型「{data.project_type}」適用 {items.length} 項{data.start_date ? "，截止日以活動日 " + data.start_date + " 推算" : ""}。
+          專案裡已經有的（同名工作）不會重複加入。工作範本可在「系統設定 → 工作範本」調整。
+        </p>
+        {!data.start_date && <p className="error">這個專案還沒填活動日期，無法推算截止日。請先到「編輯專案」填活動日期。</p>}
+        <div className="toolbar"><button className="btn small" onClick={() => all(true)}>全選</button><button className="btn small" onClick={() => all(false)}>全不選</button>
+          <span className="muted small">已選 {count} 項</span></div>
+        <div className="table-wrap"><table><thead><tr><th></th><th>截止</th><th>分類</th><th>工作項目</th><th className="hide-sm">重要性</th></tr></thead>
+          <tbody>{items.map(i => (
+            <tr key={i.template_id} className={i.exists ? "muted" : "clickable"} onClick={() => !i.exists && toggle(i.template_id)}>
+              <td><input type="checkbox" disabled={i.exists} checked={!i.exists && !!sel[i.template_id]} onChange={() => toggle(i.template_id)} onClick={e => e.stopPropagation()} aria-label={i.title} /></td>
+              <td>{i.due_date ? shortDate(i.due_date) : "T" + (i.offset_days >= 0 ? "+" : "") + i.offset_days}</td>
+              <td>{i.category}</td>
+              <td>{i.title}{i.exists && <small className="block">已在專案中</small>}</td>
+              <td className="hide-sm">{i.priority}</td>
+            </tr>
+          ))}</tbody></table></div>
+        <div className="modal-foot">
+          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn primary" disabled={busy || !count || !data.start_date} onClick={add}>{busy ? "加入中…" : "加入 " + count + " 項工作"}</button>
+        </div>
+      </>}
+    </Modal>
   );
 }
 

@@ -139,4 +139,24 @@ module.exports = (test, { assert }) => {
     app.ensureTemplateSeed_();
     assert.strictEqual(app.repo_('task_templates').findAll().length, n);
   });
+  test('[專案] 建立後再代入參考工作：先預覽、標出已有的；勾選的加入、重按不重複；沒活動日期擋下', ({ app, call }) => {
+    call('boss', 'template.seedTypes', {});
+    const { project, tasks } = call('hazel', 'project.create', { record: { name: '先建後補', project_type: '記者會' } });
+    assert.strictEqual(tasks.length, 0);
+    const p0 = call('hazel', 'task.templatePreview', { project_id: project.id });
+    assert.strictEqual(p0.start_date, null);
+    assert.ok(p0.items.length > 20 && p0.items.every(i => !i.due_date));
+    const ids = p0.items.slice(0, 3).map(i => i.template_id);
+    assert.throws(() => call('hazel', 'task.addFromTemplates', { project_id: project.id, template_ids: ids }), /活動日期/);
+    const proj = call('hazel', 'project.get', { id: project.id }).project;
+    call('hazel', 'project.update', { id: project.id, expectedUpdatedAt: proj.updated_at, patch: { start_date: '2027-06-30' } });
+    call('hazel', 'task.create', { project_id: project.id, record: { title: p0.items[0].title } });
+    const p1 = call('hazel', 'task.templatePreview', { project_id: project.id });
+    assert.strictEqual(p1.items[0].exists, true);
+    assert.strictEqual(p1.items[1].due_date, app.addDays_('2027-06-30', p1.items[1].offset_days));
+    const added = call('hazel', 'task.addFromTemplates', { project_id: project.id, template_ids: ids });
+    assert.strictEqual(added.length, 2);
+    assert.strictEqual(call('hazel', 'task.addFromTemplates', { project_id: project.id, template_ids: ids }).length, 0);
+    assert.ok(added.every(t => t.owner_account === 'hazel' && t.note));
+  });
 };

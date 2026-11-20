@@ -129,20 +129,45 @@ const TaskService = {
     });
   },
 
-  /** 通用範本＋該活動類型的參考工作項目。 */
+  /** 通用範本＋該活動類型的參考工作項目（新增專案時一次產生）。 */
   createFromTemplates(project, ctx) {
-    // 沒填活動類型的專案當成「其他」：通用工作＋現場活動的基本事項都產生，寧可多不可漏。
-    const type = project.project_type || '其他';
-    const templates = sortBy_(repo_('task_templates').findAll().filter(t => templateAppliesTo_(t, type)), 'sort');
-    return this.insertMany_(templates.map(t => ({
-      project_id: project.id,
-      category: t.category,
-      title: t.title,
-      due_date: addDays_(project.start_date, Number(t.offset_days) || 0),
-      priority: t.priority || '中',
-      owner_account: project.pm_account,
-      note: [t.done_criteria ? '完成判斷：' + t.done_criteria : '', t.tip ? '提醒：' + t.tip : ''].filter(Boolean).join('\n') || null,
-    })), ctx);
+    return this.insertMany_(templatesFor_(project).map(t => taskFromTemplate_(project, t)), ctx);
+  },
+
+  /**
+   * 專案建立後再代入參考工作：列出這個專案類型適用的範本、截止日，標出專案裡已經有的（同名工作），
+   * 讓同仁勾選要加的。活動日期或類型是後來才填、或範本後來有新增時用。
+   */
+  templatePreview(projectId) {
+    const project = repo_('projects').findById(projectId);
+    if (!project) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到專案');
+    const have = {};
+    repo_('project_tasks').findWhere(t => t.project_id === projectId).forEach(t => { have[normName_(t.title)] = true; });
+    return {
+      project_type: project.project_type || '其他',
+      start_date: project.start_date || null,
+      items: templatesFor_(project).map(t => ({
+        template_id: t.id, category: t.category, title: t.title, priority: t.priority || '中', role: t.role || null,
+        offset_days: Number(t.offset_days) || 0,
+        due_date: project.start_date ? addDays_(project.start_date, Number(t.offset_days) || 0) : null,
+        exists: !!have[normName_(t.title)],
+      })).sort((x, y) => x.offset_days - y.offset_days),
+    };
+  },
+
+  /** 把勾選的範本加進專案；專案裡已有同名工作的略過，不會重複。 */
+  addFromTemplates(projectId, templateIds, ctx) {
+    return withScriptLock_(() => {
+      const project = repo_('projects').findById(projectId);
+      if (!project) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到專案');
+      if (!project.start_date) throw new AppError(ERROR_CODES.VALIDATION, '請先填專案的活動日期，才能推算工作截止日');
+      const want = {};
+      templateIds.forEach(id => { want[id] = true; });
+      const have = {};
+      repo_('project_tasks').findWhere(t => t.project_id === projectId).forEach(t => { have[normName_(t.title)] = true; });
+      const picked = templatesFor_(project).filter(t => want[t.id] && !have[normName_(t.title)]);
+      return this.insertMany_(picked.map(t => taskFromTemplate_(project, t)), ctx);
+    });
   },
 
   // 呼叫端持有 lock。工作編號沿用追蹤表的 T-流水號，跨專案唯一，口頭溝通說「T-116」就找得到。
@@ -258,6 +283,24 @@ function taskStatsByProject_(tasks, today) {
  * 專案燈號，規則同追蹤表的公式：有逾期或卡關是紅燈；
  * 活動 7 天內完成率不到九成，或有待確認的工作是黃燈；其餘綠燈。已結束的專案不給燈號。
  */
+/** 專案適用的範本：通用＋該類型；沒填類型的當成「其他」，寧可多不可漏。 */
+function templatesFor_(project) {
+  const type = project.project_type || '其他';
+  return sortBy_(repo_('task_templates').findAll().filter(t => templateAppliesTo_(t, type)), 'sort');
+}
+
+function taskFromTemplate_(project, t) {
+  return {
+    project_id: project.id,
+    category: t.category,
+    title: t.title,
+    due_date: addDays_(project.start_date, Number(t.offset_days) || 0),
+    priority: t.priority || '中',
+    owner_account: project.pm_account,
+    note: [t.done_criteria ? '完成判斷：' + t.done_criteria : '', t.tip ? '提醒：' + t.tip : ''].filter(Boolean).join('\n') || null,
+  };
+}
+
 function projectLight_(project, stats, today) {
   if (PROJECT_CLOSED_STAGES_.indexOf(project.stage) !== -1) return '';
   if (stats.overdue > 0 || stats.blocked > 0) return '紅燈';
@@ -308,6 +351,9 @@ function projectRoutes_() {
     'task.delete': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       softDeleteRecord_('project_tasks', requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt'), ctx.account).id },
     'task.mine': { roles: INTERNAL_ROLES_, handler: (p, ctx) => TaskService.mine(ctx) },
+    'task.templatePreview': { roles: INTERNAL_ROLES_, handler: p => TaskService.templatePreview(requireString_(p, 'project_id')) },
+    'task.addFromTemplates': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      TaskService.addFromTemplates(requireString_(p, 'project_id'), requireArray_(p, 'template_ids').map(String), ctx) },
     'meeting.create': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       MeetingService.createWithTasks(pickAllowed_(p.meeting || {}, ['project_id', 'title', 'meeting_date', 'attendees', 'notes'], '會議'),
         requireArray_(p, 'tasks').map((t, i) => pickAllowed_(t, TASK_FIELDS_.concat(['project_id']), '第 ' + (i + 1) + ' 筆待辦')), ctx) },
