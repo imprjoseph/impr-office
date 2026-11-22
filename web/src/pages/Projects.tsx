@@ -250,6 +250,60 @@ function TemplateImport({ project, onClose, onDone }: { project: any; onClose: (
   );
 }
 
+/** 從報價參考加入預算：搜尋品項，每項選用公司估算或某家廠商的價格、填數量；預估成本 = 單價 × 數量。 */
+function PricePicker({ project, categories, onClose, onDone }: { project: any; categories: string[]; onClose: () => void; onDone: () => void }) {
+  const { data, error, loading } = useLoad<any[]>("priceRef.compare");
+  const [q, setQ] = useState("");
+  const [category, setCategory] = useState("硬體設備");
+  const [picked, setPicked] = useState<Record<string, { ref: string; qty: string }>>({});
+  const { busy, run } = useAction();
+  const groups = (data || []).filter(g => !q || [g.item, g.type].some(v => String(v || "").toLowerCase().includes(q.toLowerCase())));
+  const keyOf = (g: any) => g.item + "|" + (g.type || "");
+  const options = (g: any) => [...(g.estimate ? [g.estimate] : []), ...g.quotes].filter((x: any) => x.unit_price != null);
+  const priceOf = (g: any, id: string) => options(g).find((x: any) => x.id === id)?.unit_price || 0;
+  const chosen = (data || []).filter(g => picked[keyOf(g)] && Number(picked[keyOf(g)].qty) > 0);
+  const total = chosen.reduce((s, g) => s + priceOf(g, picked[keyOf(g)].ref) * Number(picked[keyOf(g)].qty), 0);
+  const set = (g: any, patch: Partial<{ ref: string; qty: string }>) => {
+    const k = keyOf(g);
+    const cur = picked[k] || { ref: (g.lowest || g.estimate || options(g)[0] || {}).id || "", qty: "" };
+    setPicked({ ...picked, [k]: { ...cur, ...patch } });
+  };
+  const add = async () => {
+    const items = chosen.map(g => ({ price_ref_id: picked[keyOf(g)].ref, quantity: Number(picked[keyOf(g)].qty) }));
+    const r = await run(() => call("budget.addFromPrices", { project_id: project.id, category, items }), "已加入 " + items.length + " 個科目，毛利已重算");
+    if (r) onDone();
+  };
+  return (
+    <Modal title="從報價參考加入預算" onClose={onClose} wide>
+      <div className="toolbar">
+        <input type="search" placeholder="搜尋品項" value={q} onChange={e => setQ(e.target.value)} />
+        <label className="small">加入科目 <select value={category} onChange={e => setCategory(e.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></label>
+      </div>
+      <Loading error={error} loading={loading && !data} />
+      {data && (data.length === 0 ? <p className="muted">還沒有報價資料。請到「費用 → 報價參考」匯入或新增。</p> :
+        <div className="table-wrap"><table><thead><tr><th>品項</th><th>用哪個價格</th><th className="num">數量</th><th className="num">小計</th></tr></thead>
+          <tbody>{groups.map(g => {
+            const k = keyOf(g), p = picked[k], opts = options(g);
+            return (
+              <tr key={k}>
+                <td><b>{g.item}</b><small className="muted block">{g.type || ""}</small></td>
+                <td>{opts.length ? <select value={p?.ref || (g.lowest || g.estimate || opts[0]).id} onChange={e => set(g, { ref: e.target.value })}>
+                  {opts.map((x: any) => <option key={x.id} value={x.id}>{(x.vendor_name || "公司估算") + "：" + money(x.unit_price) + " / " + (x.unit || g.unit || "")}</option>)}
+                </select> : <span className="muted">沒有單價</span>}</td>
+                <td className="num"><input type="number" min="0" style={{ width: 90 }} value={p?.qty || ""} disabled={!opts.length} onChange={e => set(g, { qty: e.target.value })} aria-label={g.item + " 數量"} /></td>
+                <td className="num">{p && Number(p.qty) > 0 ? money(priceOf(g, p.ref) * Number(p.qty)) : "—"}</td>
+              </tr>
+            );
+          })}</tbody></table></div>)}
+      <div className="modal-foot">
+        <span className="muted small">已選 {chosen.length} 項，預估成本合計 {money(total)} 元</span>
+        <button className="btn" onClick={onClose}>取消</button>
+        <button className="btn primary" disabled={busy || !chosen.length} onClick={add}>{busy ? "加入中…" : "加入預算"}</button>
+      </div>
+    </Modal>
+  );
+}
+
 function Meetings({ project, meetings, reload }: { project: any; meetings: any[]; reload: () => void }) {
   const lk = useLookups();
   const [open, setOpen] = useState(false);
@@ -340,6 +394,7 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
   const cats = useLoad<string[]>("budget.categories");
   const [editing, setEditing] = useState<any | null | undefined>(undefined);
   const [change, setChange] = useState(false);
+  const [fromPrices, setFromPrices] = useState(false);
   const { busy, run } = useAction();
   const done = () => { b.reload(); reload(); };
   const save = async (v: any) => {
@@ -368,7 +423,8 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
         <div className="stat"><b className={project.margin_alert ? "red" : ""}>{money(t.margin)}・{pct(t.marginRate)}</b><span>目前毛利</span></div>
       </div>
       <p className="muted small">目前成本：每個科目取「預估」與「實際」較大者，再加上沒掛科目的費用、派遣人力（{money(b.data.labor.cost)} 元，{b.data.labor.hours} 小時）與增減項成本。</p>
-      <div className="toolbar"><h3>預算科目</h3><span className="spacer" /><button className="btn" onClick={() => setChange(true)}>＋ 增減項</button><button className="btn primary" onClick={() => setEditing(null)}>＋ 科目</button></div>
+      <div className="toolbar"><h3>預算科目</h3><span className="spacer" /><button className="btn" onClick={() => setChange(true)}>＋ 增減項</button><button className="btn" onClick={() => setFromPrices(true)}>從報價參考加入</button><button className="btn primary" onClick={() => setEditing(null)}>＋ 科目</button></div>
+      {fromPrices && <PricePicker project={project} categories={cats.data || []} onClose={() => setFromPrices(false)} onDone={() => { setFromPrices(false); done(); }} />}
       <Table rows={b.data.lines} onRow={l => setEditing(l)} empty="還沒有預算科目。" columns={[
         { key: "category", label: "科目" },
         { key: "item", label: "項目", render: l => <><b>{l.item}</b>{l.supplier_id && <small className="muted block">{lk.suppliers.find(s => s.id === l.supplier_id)?.name}</small>}</> },

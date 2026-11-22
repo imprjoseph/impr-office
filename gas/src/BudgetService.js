@@ -69,6 +69,34 @@ const BudgetService = {
     });
   },
 
+  /**
+   * 從報價參考帶入：每項 { price_ref_id, quantity }，預估成本 = 單價 × 數量，帶入廠商；
+   * 科目用呼叫端選的（預設硬體設備），項目名稱附上單價與數量，日後看得出怎麼算的。
+   */
+  addFromPrices(projectId, items, category, ctx) {
+    if (!items.length) throw new AppError(ERROR_CODES.VALIDATION, '請至少選一個品項');
+    if (category && BUDGET_CATEGORIES.indexOf(category) === -1) throw new AppError(ERROR_CODES.VALIDATION, '科目不正確');
+    return withScriptLock_(() => {
+      assertCanEditBudget_(projectId, ctx);
+      const refs = indexBy_(repo_('price_refs').findAll(), 'id');
+      const rows = items.map((it, i) => {
+        const ref = refs[String(it.price_ref_id)];
+        if (!ref) throw new AppError(ERROR_CODES.NOT_FOUND, '第 ' + (i + 1) + ' 項找不到報價資料，請重新整理');
+        const qty = Number(it.quantity);
+        if (!(qty > 0)) throw new AppError(ERROR_CODES.VALIDATION, '「' + ref.item + '」的數量要大於 0');
+        const price = Number(ref.unit_price) || 0;
+        return {
+          project_id: projectId, category: category || '硬體設備', item: ref.item + (ref.type && normName_(ref.type) !== normName_(ref.item) ? '（' + ref.type + '）' : ''),
+          cost_estimate: Math.round(price * qty), supplier_id: ref.supplier_id || null, source: 'price_ref',
+          note: (ref.vendor_name ? ref.vendor_name + ' 報價' : '公司估算') + '：' + price + ' 元／' + (ref.unit || '單位') + ' × ' + qty,
+        };
+      });
+      const saved = repo_('budget_lines').insertMany(rows, ctx.account);
+      this.recalc(projectId, ctx.account);
+      return saved;
+    });
+  },
+
   updateLine(id, expected, patch, ctx) {
     return withScriptLock_(() => {
       const repo = repo_('budget_lines');
@@ -181,6 +209,8 @@ function budgetRoutes_() {
       if (!project || !ProjectService.canSeeFinance(ctx, project)) throw new AppError(ERROR_CODES.FORBIDDEN, '只有專案 PM 或財務角色可以看預算');
       return BudgetService.forProject(id);
     } },
+    'budget.addFromPrices': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      BudgetService.addFromPrices(requireString_(p, 'project_id'), requireArray_(p, 'items'), p.category || null, ctx) },
     'budget.addLine': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       BudgetService.addLine(requireString_(p, 'project_id'), pickAllowed_(p.record || {}, BUDGET_LINE_FIELDS_, '預算科目'), ctx) },
     'budget.updateLine': { roles: INTERNAL_ROLES_, handler: (p, ctx) => {

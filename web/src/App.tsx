@@ -3,7 +3,7 @@
  * 用 hash 路由是因為 GitHub Pages 沒有伺服器端改寫，重新整理子頁面才不會 404。
  */
 import { useEffect, useState } from "react";
-import { BarChart3, Briefcase, Building2, CalendarClock, ClipboardList, FileText, Gavel, Home, KeyRound, Landmark, Newspaper, UserRoundSearch, LogOut, Menu, Package,
+import { BarChart3, Briefcase, Calculator, Building2, CalendarClock, ClipboardList, FileText, Gavel, Home, KeyRound, Landmark, Newspaper, UserRoundSearch, LogOut, Menu, Package,
   Receipt, Settings, Sparkles, Truck, Users, UserRoundCog, X } from "lucide-react";
 import { call, hasValidToken, LOGIN_EVENT, logout, Me } from "./api";
 import { Login, PasswordModal } from "./pages/Login";
@@ -13,6 +13,7 @@ import { ProjectDetail, ProjectList } from "./pages/Projects";
 import Tenders from "./pages/Tenders";
 import PublicTenders from "./pages/PublicTenders";
 import Media from "./pages/Media";
+import PriceRefs from "./pages/PriceRefs";
 import PartTimers from "./pages/PartTimers";
 import { Clients, Suppliers } from "./pages/Partners";
 import People from "./pages/People";
@@ -36,6 +37,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
   ] },
   { group: "費用", items: [
     { path: "expenses", label: "請款與報帳", icon: Receipt, roles: INTERNAL },
+    { path: "price-refs", label: "報價參考", icon: Calculator, roles: INTERNAL },
     { path: "reports", label: "毛利報表", icon: BarChart3, roles: ["admin", "manager", "accountant"] },
   ] },
   { group: "人力", items: [
@@ -85,6 +87,7 @@ function Shell() {
       case "tenders": return <Tenders />;
       case "public-tenders": return <PublicTenders />;
       case "media": return <Media />;
+      case "price-refs": return <PriceRefs />;
       case "part-timers": return <PartTimers />;
       case "ai": return <Ai />;
       case "expenses": return <Expenses />;

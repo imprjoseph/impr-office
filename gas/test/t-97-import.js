@@ -44,4 +44,38 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(log.length, 2);
     assert.doesNotMatch(log[1].detail, /pw/);
   });
+  test('[報價參考] 匯入估算與廠商報價、對到供應商；比價取最低；預算帶入 = 單價 × 數量並重算毛利', ({ call }) => {
+    call('boss', 'supplier.create', { record: { name: '酷我舞台工程有限公司', category: '舞台' } });
+    const sheets = [
+      { name: '估算表', rows: [{ '品項': 'Truss', '類型': 'Truss', '估價': '8000', '單位': '座', '預算': '0' }, { '品項': '折合椅', '類型': '桌椅', '估價': '60', '單位': '張' }] },
+      { name: '報價', rows: [
+        { '品項': 'Truss', '類型': 'Truss', '廠商': '金馬行', '估價': '38,200', '單位': '座' },
+        { '品項': 'Truss', '類型': 'Truss', '廠商': '酷我', '估價': '8000', '單位': '座' },
+        { '品項': '紅地毯', '類型': '地毯', '廠商': '金馬行', '單位': '組' },
+      ] },
+    ];
+    const r = call('boss', 'import.priceRefs', { sheets });
+    assert.deepStrictEqual([r.inserted, r.updated], [5, 0]);
+    sheets[1].rows[0]['估價'] = '36000';
+    assert.deepStrictEqual(Object.values(call('boss', 'import.priceRefs', { sheets })).slice(0, 2), [0, 1]);
+    const cmp = call('amy', 'priceRef.compare');
+    const truss = cmp.find(g => g.item === 'Truss');
+    assert.strictEqual(truss.estimate.unit_price, 8000);
+    assert.deepStrictEqual(truss.quotes.map(q => q.vendor_name + ':' + q.unit_price), ['酷我:8000', '金馬行:36000']);
+    assert.strictEqual(truss.lowest.supplier_name, '酷我舞台工程有限公司');
+    assert.strictEqual(cmp.find(g => g.item === '紅地毯').lowest, null);
+
+    const { project } = call('hazel', 'project.create', { record: { name: '展覽案', contract_amount: 100000 } });
+    call('hazel', 'budget.addLine', { project_id: project.id, record: { category: '場地', item: '總報價', quote_amount: 100000 } });
+    const chair = cmp.find(g => g.item === '折合椅').estimate;
+    const lines = call('hazel', 'budget.addFromPrices', { project_id: project.id, category: '硬體設備', items: [
+      { price_ref_id: truss.lowest.id, quantity: 2 }, { price_ref_id: chair.id, quantity: 100 } ] });
+    assert.deepStrictEqual(lines.map(l => l.cost_estimate), [16000, 6000]);
+    assert.strictEqual(lines[0].supplier_id, truss.lowest.supplier_id);
+    assert.match(lines[0].note, /酷我 報價：8000 元／座 × 2/);
+    const b = call('hazel', 'budget.get', { project_id: project.id });
+    assert.strictEqual(b.totals.estimate, 22000);
+    assert.throws(() => call('hazel', 'budget.addFromPrices', { project_id: project.id, items: [{ price_ref_id: chair.id, quantity: 0 }] }), /數量/);
+    assert.throws(() => call('amy', 'import.priceRefs', { sheets }), /權限/);
+  });
 };

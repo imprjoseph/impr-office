@@ -46,7 +46,7 @@ function allRoutes_() {
   const providers = [
     'sessionRoutes_', 'peopleRoutes_', 'clientRoutes_', 'supplierRoutes_', 'tenderRoutes_',
     'projectRoutes_', 'budgetRoutes_', 'expenseRoutes_', 'attendanceRoutes_', 'dispatchRoutes_',
-    'timesheetRoutes_', 'resourceRoutes_', 'inventoryRoutes_', 'partTimerRoutes_', 'importRoutes_', 'aiRoutes_', 'dashboardRoutes_', 'adminRoutes_', 'migrationRoutes_', 'publicTenderRoutes_',
+    'timesheetRoutes_', 'resourceRoutes_', 'inventoryRoutes_', 'partTimerRoutes_', 'importRoutes_', 'priceRefRoutes_', 'aiRoutes_', 'dashboardRoutes_', 'adminRoutes_', 'migrationRoutes_', 'publicTenderRoutes_',
   ];
   const routes = {};
   providers.forEach(name => {
