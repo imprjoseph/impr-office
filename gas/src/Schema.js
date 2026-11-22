@@ -148,7 +148,9 @@ const TABLES = {
     'name!, category, quantity:num, unit, location, manager_account, photo_url, note, ' +
     'kind, track_mode, spec, safety_stock:num') },
   inventory_units: { prefix: 'inu', cache: false, columns: cols_(
-    'inventory_id!, asset_tag!, serial_no, status!, location, purchase_date:date, cost:num, warranty_until:date, note') },
+    'inventory_id!, asset_tag!, serial_no, status!, location, purchase_date:date, cost:num, warranty_until:date, note, ' +
+    // 這一台的保管人（例如配給某同仁的筆電）；空白就由資材的保管人負責
+    'custodian_account') },
   loans: { prefix: 'lon', cache: false, columns: cols_(
     'inventory_id!, borrower_account!, project_id, quantity:num!, loan_date:date!, due_date:date, ' +
     'returned_at:dt, status!, note, unit_ids') },

@@ -1,8 +1,9 @@
 /** 資材、SOP、帳密、工時。 */
 module.exports = (test, { assert }) => {
   test('[資材] 整批資產：借用不能超過可借數量；歸還後釋出；逾期標示；總數不能少於借出數', ({ call }) => {
-    const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', quantity: 4, unit: '支' } });
+    const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', category: '錄音與音響設備', quantity: 4, unit: '支' } });
     assert.strictEqual(item.kind, '資產');
+    assert.throws(() => call('hazel', 'inventory.create', { record: { name: '沒分類的', quantity: 1 } }), /分類/);
     assert.strictEqual(item.track_mode, '整批');
     const l = call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 3 } });
     assert.throws(() => call('hazel', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2 } }), e => /只剩 1 支/.test(e.message));
@@ -18,7 +19,8 @@ module.exports = (test, { assert }) => {
     item = call('hazel', 'inventory.setMode', { id: item.id, expectedUpdatedAt: item.updated_at, kind: '資產', track_mode: '逐台' });
     let units = call('hazel', 'inventory.units', { inventory_id: item.id });
     assert.deepStrictEqual(units.map(u => u.asset_tag), ['A-0001', 'A-0002', 'A-0003']);
-    const extra = call('hazel', 'inventory.addUnit', { inventory_id: item.id, record: { serial_no: 'SN-9' } });
+    const extra = call('hazel', 'inventory.addUnit', { inventory_id: item.id, record: { serial_no: 'SN-9', custodian_account: 'amy' } });
+    assert.strictEqual(extra.custodian_account, 'amy');
     assert.strictEqual(extra.asset_tag, 'A-0004');
     assert.throws(() => call('hazel', 'inventory.addUnit', { inventory_id: item.id, record: { asset_tag: 'a-0001' } }), /已經用過/);
     assert.throws(() => call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 1 } }), /勾選要借哪幾台/);
@@ -44,7 +46,7 @@ module.exports = (test, { assert }) => {
   });
 
   test('[資材] 耗材：固定整批、不能借；入庫加、領用扣（不能扣到負）、盤點調差額；低於安全存量標示；庫存不能直接改', ({ call }) => {
-    const item = call('hazel', 'inventory.create', { record: { name: '識別證套', kind: '耗材', track_mode: '逐台', quantity: 100, unit: '個', safety_stock: 30 } });
+    const item = call('hazel', 'inventory.create', { record: { name: '識別證套', kind: '耗材', category: '識別證與名牌耗材', track_mode: '逐台', quantity: 100, unit: '個', safety_stock: 30 } });
     assert.strictEqual(item.track_mode, '整批');
     assert.throws(() => call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 1 } }), /領用/);
     call('amy', 'stock.move', { record: { inventory_id: item.id, kind: '領用', quantity: 80, project_id: null } });

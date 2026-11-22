@@ -43,7 +43,7 @@ const e1 = call('amy', 'expense.create', { record: { project_id: a.id, budget_li
 call('amy', 'expense.submit', { id: e1.id, expectedUpdatedAt: e1.updated_at });
 call('hazel', 'tender.create', { record: { title: '2027 防詐宣導整合行銷', agency: '電信協會', budget_amount: 2400000, deadline_date: day(9), opening_date: day(12) } });
 call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: b.id, start_date: day(0), end_date: day(21), role: '報到台', hourly_wage: 200 } });
-const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', quantity: 8, unit: '支', location: '倉庫 A' } });
+const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', category: '錄音與音響設備', quantity: 8, unit: '支', location: '倉庫 A', manager_account: 'hazel' } });
 call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2, project_id: a.id, due_date: day(6) } });
 const nb = call('hazel', 'inventory.create', { record: { name: '華碩筆電', category: '電腦與周邊設備', spec: 'ZenBook 14', quantity: 3, unit: '台', location: '辦公室櫃 B' } });
 call('hazel', 'inventory.setMode', { id: nb.id, expectedUpdatedAt: nb.updated_at, kind: '資產', track_mode: '逐台' });

@@ -15,9 +15,7 @@ export default function Inventory() {
   const items = useLoad<any[]>("inventory.withStock");
   const loans = useLoad<any[]>("loan.list");
   const opts = useLoad<any>("inventory.options");
-  const [kind, setKind] = useState("全部");
-  const [category, setCategory] = useState("");
-  const [q, setQ] = useState("");
+  const [view, setView] = useState("master");
   const [editing, setEditing] = useState<any | null | undefined>(undefined);
   const [borrowing, setBorrowing] = useState<any | null>(null);
   const [unitsOf, setUnitsOf] = useState<any | null>(null);
@@ -25,59 +23,107 @@ export default function Inventory() {
   const [returning, setReturning] = useState<any | null>(null);
   const { busy, run } = useAction();
   const reload = () => { items.reload(); loans.reload(); };
-  const all = items.data || [];
-  const cats = Array.from(new Set(all.filter(i => kind === "全部" || i.kind === kind).map(i => i.category).filter(Boolean))).sort();
-  const rows = all.filter(i => (kind === "全部" || (kind === "庫存不足" ? i.low_stock : i.kind === kind)) && (!category || i.category === category) &&
-    (!q || [i.name, i.category, i.spec, i.location].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
-  const lowCount = all.filter(i => i.low_stock).length;
   const giveBack = async (l: any, damaged: string[]) => {
     const r = await run(() => call("loan.return", { id: l.id, expectedUpdatedAt: l.updated_at, damaged_unit_ids: damaged }), "已歸還");
     if (r) { setReturning(null); reload(); }
   };
+  const out = (loans.data || []).filter(l => l.status === "借出中");
+  const overdue = out.filter(l => l.overdue).length;
   return (
-    <Page title="資材" sub="資產用完要歸還（逐台：每台有財產編號；整批：只記數量）；耗材用掉就扣庫存，低於安全存量會標紅。"
+    <Page title="資材" sub="資材總檔依分類列出每項資材與保管人；借用檔記錄每一次借出與歸還。資產要歸還（逐台：每台有財產編號；整批：只記數量），耗材用掉就扣庫存。"
       actions={<button className="btn primary" onClick={() => setEditing(null)}>＋ 新增資材</button>}>
-      <div className="toolbar">
-        <Tabs tabs={[["全部", "全部"], ["資產", "資產"], ["耗材", "耗材"], ["庫存不足", "庫存不足" + (lowCount ? "（" + lowCount + "）" : "")]]} value={kind} onChange={v => { setKind(v); setCategory(""); }} />
-        <select value={category} onChange={e => setCategory(e.target.value)} aria-label="類別"><option value="">全部類別</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
-        <input type="search" placeholder="搜尋名稱、規格、位置" value={q} onChange={e => setQ(e.target.value)} />
-      </div>
-      <Loading error={items.error} loading={items.loading && !items.data} />
-      {items.data && <Table rows={rows} empty="沒有符合的資材。" columns={[
-        { key: "name", label: "資材", render: i => <><b>{i.name}</b><small className="muted block">{[i.category, i.spec, i.location].filter(Boolean).join("・")}</small></> },
-        { key: "kind", label: "類型", render: i => <Badge text={kindLabel(i)} tone={i.kind === "耗材" ? "" : i.track_mode === "逐台" ? "green" : ""} /> },
-        { key: "q", label: "數量", num: true, render: i => i.kind === "耗材"
-          ? <span className={i.low_stock ? "red" : ""}>庫存 {i.total} {i.unit || ""}{i.low_stock && <small className="block">低於安全存量 {i.safety_stock}</small>}</span>
-          : <span className={i.available <= 0 ? "red" : ""}>可用 {i.available}／{i.total} {i.unit || ""}</span> },
-        { key: "m", label: "管理人", hideSm: true, render: i => lk.nameOf(i.manager_account) },
-        { key: "x", label: "", render: i => <span className="row-actions">
-          {i.kind === "耗材" ? <>
-            <button className="btn small primary" onClick={() => setStockOf({ item: i, kind: "領用" })}>領用</button>
-            <button className="btn small" onClick={() => setStockOf({ item: i, kind: "入庫" })}>入庫</button>
-          </> : i.track_mode === "逐台"
-            ? <button className="btn small primary" onClick={() => setUnitsOf(i)}>單台清單</button>
-            : <button className="btn small primary" disabled={i.available <= 0} onClick={() => setBorrowing(i)}>借用</button>}
-          <button className="btn small" onClick={() => setEditing(i)}>編輯</button>
-        </span> },
-      ]} />}
-
-      <h3>借用中與借用紀錄</h3>
-      {loans.data && <Table rows={loans.data.slice(0, 100)} empty="沒有借用紀錄。" columns={[
-        { key: "s", label: "狀態", render: l => l.overdue ? <Badge text="已逾期" /> : <Badge text={l.status} tone={l.status === "已歸還" ? "green" : "yellow"} /> },
-        { key: "item", label: "資材", render: l => <><b>{l.item_name} × {l.quantity}</b>{l.unit_tags.length > 0 && <small className="muted block">{l.unit_tags.join("、")}</small>}</> },
-        { key: "who", label: "借用人", render: l => lk.nameOf(l.borrower_account) },
-        { key: "p", label: "專案", hideSm: true, render: l => l.project_id ? lk.projectName(l.project_id) : "—" },
-        { key: "due", label: "歸還日", render: l => shortDate(l.due_date) },
-        { key: "x", label: "", render: l => l.status === "借出中" ? <button className="btn small" disabled={busy} onClick={() => l.unit_ids ? setReturning(l) : giveBack(l, [])}>歸還</button> : null },
-      ]} />}
-
+      <Tabs tabs={[["master", "資材總檔"], ["loans", "借用檔" + (out.length ? "（借出中 " + out.length + (overdue ? "・逾期 " + overdue : "") + "）" : "")]]} value={view} onChange={setView} />
+      {view === "master"
+        ? <Master items={items} onEdit={setEditing} onBorrow={setBorrowing} onUnits={setUnitsOf} onStock={(item, kind) => setStockOf({ item, kind })} />
+        : <Loans loans={loans} busy={busy} onReturn={l => l.unit_ids ? setReturning(l) : giveBack(l, [])} />}
       {editing !== undefined && opts.data && <ItemForm item={editing} opts={opts.data} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }} />}
       {borrowing && <BorrowForm item={borrowing} unitIds={null} onClose={() => setBorrowing(null)} onDone={() => { setBorrowing(null); reload(); }} />}
       {unitsOf && opts.data && <Units item={unitsOf} opts={opts.data} onClose={() => { setUnitsOf(null); reload(); }} />}
       {stockOf && <StockMove item={stockOf.item} initialKind={stockOf.kind} onClose={() => setStockOf(null)} onDone={() => { setStockOf(null); reload(); }} />}
       {returning && <ReturnUnits loan={returning} busy={busy} onClose={() => setReturning(null)} onReturn={d => giveBack(returning, d)} />}
-    </Page>
+          </Page>
   );
+}
+
+/** 資材總檔：依分類分組，每項列出類型、數量、保管人、存放位置。可依大項、分類、保管人篩選。 */
+function Master({ items, onEdit, onBorrow, onUnits, onStock }: { items: any; onEdit: (i: any) => void; onBorrow: (i: any) => void; onUnits: (i: any) => void; onStock: (i: any, kind: string) => void }) {
+  const lk = useLookups();
+  const [kind, setKind] = useState("全部");
+  const [category, setCategory] = useState("");
+  const [keeper, setKeeper] = useState("");
+  const [q, setQ] = useState("");
+  const all: any[] = items.data || [];
+  const cats = Array.from(new Set(all.filter(i => kind === "全部" || i.kind === kind).map(i => i.category || "未分類"))).sort();
+  const keepers = Array.from(new Set(all.map(i => i.manager_account).filter(Boolean)));
+  const rows = all.filter(i => (kind === "全部" || (kind === "庫存不足" ? i.low_stock : i.kind === kind)) && (!category || (i.category || "未分類") === category) &&
+    (!keeper || (keeper === "-" ? !i.manager_account : i.manager_account === keeper)) &&
+    (!q || [i.name, i.category, i.spec, i.location].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
+  const groups: Record<string, any[]> = {};
+  rows.forEach(i => { (groups[i.category || "未分類"] = groups[i.category || "未分類"] || []).push(i); });
+  const lowCount = all.filter(i => i.low_stock).length;
+  const noKeeper = all.filter(i => !i.manager_account).length;
+  return <>
+    <div className="toolbar">
+      <Tabs tabs={[["全部", "全部"], ["資產", "資產"], ["耗材", "耗材"], ["庫存不足", "庫存不足" + (lowCount ? "（" + lowCount + "）" : "")]]} value={kind} onChange={v => { setKind(v); setCategory(""); }} />
+      <select value={category} onChange={e => setCategory(e.target.value)} aria-label="分類"><option value="">全部分類</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
+      <select value={keeper} onChange={e => setKeeper(e.target.value)} aria-label="保管人"><option value="">全部保管人</option>
+        {keepers.map(k => <option key={k} value={k}>{lk.nameOf(k)}</option>)}<option value="-">（未指定保管人 {noKeeper}）</option></select>
+      <input type="search" placeholder="搜尋名稱、規格、位置" value={q} onChange={e => setQ(e.target.value)} />
+      <span className="muted small">{rows.length} 項</span>
+    </div>
+    <Loading error={items.error} loading={items.loading && !items.data} />
+    {items.data && !rows.length && <p className="empty">沒有符合的資材。</p>}
+    {Object.keys(groups).sort().map(cat => (
+      <section key={cat} className="inv-group">
+        <h3>{cat} <span className="muted small">{groups[cat].length} 項</span></h3>
+        <Table rows={groups[cat]} onRow={onEdit} columns={[
+          { key: "name", label: "名稱", render: i => <><b>{i.name}</b><small className="muted block">{[i.spec, i.location].filter(Boolean).join("・")}</small></> },
+          { key: "kind", label: "類型", hideSm: true, render: i => <Badge text={kindLabel(i)} tone={i.kind === "耗材" ? "" : i.track_mode === "逐台" ? "green" : ""} /> },
+          { key: "q", label: "數量", num: true, render: i => i.kind === "耗材"
+            ? <span className={i.low_stock ? "red" : ""}>庫存 {i.total} {i.unit || ""}{i.low_stock && <small className="block">低於安全存量 {i.safety_stock}</small>}</span>
+            : <span className={i.available <= 0 ? "red" : ""}>可用 {i.available}／{i.total} {i.unit || ""}</span> },
+          { key: "keeper", label: "保管人", render: i => i.manager_account ? lk.nameOf(i.manager_account) : <span className="muted">未指定</span> },
+          { key: "x", label: "", render: i => <span className="row-actions" onClick={e => e.stopPropagation()}>
+            {i.kind === "耗材" ? <>
+              <button className="btn small primary" onClick={() => onStock(i, "領用")}>領用</button>
+              <button className="btn small" onClick={() => onStock(i, "入庫")}>入庫</button>
+            </> : i.track_mode === "逐台"
+              ? <button className="btn small primary" onClick={() => onUnits(i)}>單台清單</button>
+              : <button className="btn small primary" disabled={i.available <= 0} onClick={() => onBorrow(i)}>借用</button>}
+          </span> },
+        ]} />
+      </section>
+    ))}
+  </>;
+}
+
+/** 借用檔：每一次借出與歸還。可依狀態、借用人、專案、資材篩選。 */
+function Loans({ loans, busy, onReturn }: { loans: any; busy: boolean; onReturn: (l: any) => void }) {
+  const lk = useLookups();
+  const [status, setStatus] = useState("借出中");
+  const [who, setWho] = useState("");
+  const [q, setQ] = useState("");
+  const all: any[] = loans.data || [];
+  const people = Array.from(new Set(all.map(l => l.borrower_account).filter(Boolean)));
+  const rows = all.filter(l => (status === "全部" || (status === "逾期" ? l.overdue : l.status === status)) && (!who || l.borrower_account === who) &&
+    (!q || [l.item_name, l.unit_tags.join(" "), l.project_id ? lk.projectName(l.project_id) : "", l.note].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
+  return <>
+    <div className="toolbar">
+      <Tabs tabs={[["借出中", "借出中"], ["逾期", "逾期"], ["已歸還", "已歸還"], ["全部", "全部"]]} value={status} onChange={setStatus} />
+      <select value={who} onChange={e => setWho(e.target.value)} aria-label="借用人"><option value="">全部借用人</option>{people.map(p => <option key={p} value={p}>{lk.nameOf(p)}</option>)}</select>
+      <input type="search" placeholder="搜尋資材、財產編號、專案" value={q} onChange={e => setQ(e.target.value)} />
+      <span className="muted small">{rows.length} 筆</span>
+    </div>
+    <Loading error={loans.error} loading={loans.loading && !loans.data} />
+    {loans.data && <Table rows={rows} empty="沒有符合的借用紀錄。" columns={[
+      { key: "s", label: "狀態", render: l => l.overdue ? <Badge text="已逾期" /> : <Badge text={l.status} tone={l.status === "已歸還" ? "green" : "yellow"} /> },
+      { key: "item", label: "資材", render: l => <><b>{l.item_name} × {l.quantity} {l.unit || ""}</b>{l.unit_tags.length > 0 && <small className="muted block">{l.unit_tags.join("、")}</small>}</> },
+      { key: "who", label: "借用人", render: l => lk.nameOf(l.borrower_account) },
+      { key: "p", label: "專案", hideSm: true, render: l => l.project_id ? lk.projectName(l.project_id) : "—" },
+      { key: "d", label: "借出／歸還", render: l => <>{shortDate(l.loan_date)}<small className="muted block">{l.status === "已歸還" ? "還 " + shortDate(String(l.returned_at || "").slice(0, 10)) : "預計 " + shortDate(l.due_date)}</small></> },
+      { key: "x", label: "", render: l => l.status === "借出中" ? <button className="btn small" disabled={busy} onClick={() => onReturn(l)}>歸還</button> : null },
+    ]} />}
+  </>;
 }
 
 function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void }) {
@@ -93,7 +139,7 @@ function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: an
       { name: "kind", label: "大項", type: "select", options: opts.kinds, required: true, hint: "資產用完要歸還；耗材用掉就沒了" } as Field,
       ...(!consumable ? [{ name: "track_mode", label: "管理方式", type: "select", options: opts.modes, required: true, hint: "逐台：每台有財產編號（筆電、攝影機）；整批：只記數量（延長線、對講機）" } as Field] : []),
     ] : []),
-    { name: "category", label: "類別", type: "select", options: consumable ? opts.consumableCategories : opts.assetCategories },
+    { name: "category", label: "分類", type: "select", options: consumable ? opts.consumableCategories : opts.assetCategories, required: true },
     { name: "spec", label: "規格／型號" },
     { name: "unit", label: "單位（台、支、個…）" },
     ...(consumable
@@ -101,7 +147,7 @@ function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: an
       : mode === "整批" ? [{ name: "quantity", label: "總數量", type: "number" } as Field]
       : isNew ? [{ name: "quantity", label: "台數（會自動建立單台資料，財產編號之後可改）", type: "number" } as Field] : []),
     { name: "location", label: "存放位置" },
-    { name: "manager_account", label: "管理人", type: "person" },
+    { name: "manager_account", label: "保管人", type: "person", hint: "負責這項資材的人；逐台的可在單台清單另外指定每台的保管人" },
     { name: "photo_url", label: "照片連結", type: "url" },
     { name: "note", label: "備註", type: "textarea" },
   ];
@@ -188,6 +234,7 @@ function Units({ item, opts, onClose }: { item: any; opts: any; onClose: () => v
           onChange={e => setPicked({ ...picked, [u.id]: e.target.checked })} aria-label={u.asset_tag} /> },
         { key: "tag", label: "財產編號", render: u => <><b>{u.asset_tag}</b><small className="muted block">{u.serial_no ? "序號 " + u.serial_no : ""}</small></> },
         { key: "s", label: "狀態", render: u => <><Badge text={u.status} tone={tone(u.status)} />{u.borrower_account && <small className="muted block">{lk.nameOf(u.borrower_account)}{u.due_date ? "・" + shortDate(u.due_date) + " 還" : ""}</small>}</> },
+        { key: "keeper", label: "保管人", render: u => u.custodian_account ? lk.nameOf(u.custodian_account) : <span className="muted">{item.manager_account ? lk.nameOf(item.manager_account) : "—"}</span> },
         { key: "loc", label: "位置", hideSm: true, render: u => u.location || "—" },
         { key: "w", label: "保固到", hideSm: true, render: u => u.warranty_until ? shortDate(u.warranty_until) : "—" },
       ]} />}
@@ -195,6 +242,7 @@ function Units({ item, opts, onClose }: { item: any; opts: any; onClose: () => v
         <RecordForm busy={busy} initial={editing || undefined} onCancel={() => setEditing(undefined)} onSubmit={save} fields={[
           { name: "asset_tag", label: "財產編號（空白自動編）" }, { name: "serial_no", label: "序號" },
           ...(editing && editing.status === "借出" ? [] : [{ name: "status", label: "狀態", type: "select", options: opts.unitStatuses } as Field]),
+          { name: "custodian_account", label: "這台的保管人（空白＝資材保管人）", type: "person" },
           { name: "location", label: "存放位置" }, { name: "purchase_date", label: "購入日", type: "date" }, { name: "cost", label: "購入金額", type: "number" },
           { name: "warranty_until", label: "保固到期", type: "date" }, { name: "note", label: "備註", type: "textarea" },
         ]} extra={editing && editing.status !== "借出" && <button type="button" className="btn danger-link" onClick={remove}>刪除這台</button>} />

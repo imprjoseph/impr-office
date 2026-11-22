@@ -22,7 +22,7 @@ const CONSUMABLE_CATEGORIES = ['文具', '印刷與輸出耗材', '電池與電�
 
 const INVENTORY_FIELDS_ = ['name', 'kind', 'track_mode', 'category', 'spec', 'quantity', 'unit', 'safety_stock', 'location',
   'manager_account', 'photo_url', 'note'];
-const UNIT_FIELDS_ = ['asset_tag', 'serial_no', 'status', 'location', 'purchase_date', 'cost', 'warranty_until', 'note'];
+const UNIT_FIELDS_ = ['asset_tag', 'serial_no', 'status', 'location', 'custodian_account', 'purchase_date', 'cost', 'warranty_until', 'note'];
 
 /** 舊資料沒有 kind / track_mode：一律當整批資產（原本物資系統就是這樣管）。 */
 function itemKind_(item) { return item.kind === INVENTORY_KIND.CONSUMABLE ? INVENTORY_KIND.CONSUMABLE : INVENTORY_KIND.ASSET; }
@@ -30,6 +30,7 @@ function itemMode_(item) { return itemKind_(item) === INVENTORY_KIND.ASSET && it
 
 function normalizeItem_(record, current) {
   const merged = Object.assign({}, current || {}, record);
+  if (!current && !String(merged.category || '').trim()) throw new AppError(ERROR_CODES.VALIDATION, '請選擇資材的分類');
   const kind = merged.kind || INVENTORY_KIND.ASSET;
   if ([INVENTORY_KIND.ASSET, INVENTORY_KIND.CONSUMABLE].indexOf(kind) === -1) throw new AppError(ERROR_CODES.VALIDATION, '大項只能是資產或耗材');
   const mode = kind === INVENTORY_KIND.CONSUMABLE ? TRACK_MODE.BATCH : (merged.track_mode || TRACK_MODE.BATCH);
