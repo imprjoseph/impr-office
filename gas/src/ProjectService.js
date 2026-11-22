@@ -396,6 +396,19 @@ function projectRoutes_() {
       const a = updateArgs_(p, TASK_FIELDS_, '工作');
       return TaskService.update(a.id, a.expected, a.patch, ctx);
     } },
+    // 前端先在畫面上改、累積幾筆後一次送：同一把 lock 內逐筆套用，每筆各自成功或失敗（例如別人剛改過）。
+    'task.updateMany': { roles: INTERNAL_ROLES_, handler: (p, ctx) => {
+      const items = requireArray_(p, 'items');
+      if (items.length > 200) throw new AppError(ERROR_CODES.VALIDATION, '一次最多 200 筆');
+      return withScriptLock_(() => items.map(it => {
+        try {
+          const a = updateArgs_(it, TASK_FIELDS_, '工作');
+          return { id: a.id, ok: true, record: TaskService.update(a.id, a.expected, a.patch, ctx) };
+        } catch (e) {
+          return { id: String(it.id || ''), ok: false, code: e.code || 'INTERNAL_ERROR', error: e.message };
+        }
+      }));
+    } },
     'task.delete': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       softDeleteRecord_('project_tasks', requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt'), ctx.account).id },
     'task.mine': { roles: INTERNAL_ROLES_, handler: (p, ctx) => TaskService.mine(ctx) },

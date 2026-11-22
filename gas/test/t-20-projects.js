@@ -196,4 +196,23 @@ module.exports = (test, { assert }) => {
     assert.ok(app.repo_('supplier_bookings').findAll().filter(b => b.project_id === other.id).every(b => b.status === 'cancelled'));
     assert.ok(app.repo_('audit_log').findAll().some(a => a.action === 'project.delete' && a.entity_id === other.id));
   });
+  test('[工作] 批次更新：一次送多筆，各自成功或失敗；別人改過的那筆回報衝突、其他照存', ({ call, app }) => {
+    call('boss', 'template.create', { record: { category: '合約行政', title: '甲', offset_days: -60 } });
+    call('boss', 'template.create', { record: { category: '合約行政', title: '乙', offset_days: -30 } });
+    const { tasks } = call('hazel', 'project.create', { record: { name: '批次案', start_date: '2027-05-01' }, applyTemplate: true });
+    const [a, b] = tasks;
+    // 別人先改了乙
+    call('amy', 'task.update', { id: b.id, expectedUpdatedAt: b.updated_at, patch: { status: '進行中' } });
+    const r = call('hazel', 'task.updateMany', { items: [
+      { id: a.id, expectedUpdatedAt: a.updated_at, patch: { status: '已完成' } },
+      { id: b.id, expectedUpdatedAt: b.updated_at, patch: { status: '卡關', blocker: '等客戶' } },
+    ] });
+    assert.strictEqual(r[0].ok, true);
+    assert.strictEqual(r[0].record.status, '已完成');
+    assert.strictEqual(r[1].ok, false);
+    assert.strictEqual(r[1].code, 'CONFLICT_ERROR');
+    const saved = app.repo_('project_tasks').findAll();
+    assert.strictEqual(saved.find(t => t.id === a.id).status, '已完成');
+    assert.strictEqual(saved.find(t => t.id === b.id).status, '進行中');
+  });
 };

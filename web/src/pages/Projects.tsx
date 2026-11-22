@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { call } from "../api";
-import { Badge, Field, Loading, Modal, Page, RecordForm, Table, Tabs, money, pct, shortDate, useAction, useLoad, useLookups } from "../ui";
+import { Badge, Field, Loading, Modal, Page, RecordForm, Table, Tabs, money, pct, shortDate, useAction, useLoad, useLookups, useSaveQueue } from "../ui";
 
 // 活動類型：和後端 PROJECT_TYPES 一致（「頒獎典禮」已改為「典禮」）
 export const PROJECT_TYPES = ["論壇", "研討會", "記者會", "展覽", "典禮", "訪查", "媒體宣傳", "教育訓練", "尾牙", "其他"];
@@ -80,7 +80,7 @@ export function ProjectList() {
 
 export function ProjectDetail({ id }: { id: string }) {
   const lk = useLookups();
-  const { data, error, loading, reload } = useLoad<any>("project.get", { id });
+  const { data, error, loading, reload, setData } = useLoad<any>("project.get", { id });
   const opts = useLoad<any>("project.options");
   const [tab, setTab] = useState("tasks");
   const [editing, setEditing] = useState(false);
@@ -99,9 +99,17 @@ export function ProjectDetail({ id }: { id: string }) {
     const r = await run(() => call<any>("project.delete", { id: p.id, expectedUpdatedAt: p.updated_at }), "已刪除專案「" + p.name + "」");
     if (r) { lk.refresh(["projects"]); location.hash = "#/projects"; }
   };
+  // 階段先換到畫面上，背景寫入；失敗再換回來
   const setStage = async (stage: string) => {
-    const r = await run(() => call("project.setStage", { id: p.id, expectedUpdatedAt: p.updated_at, stage }), "已改成「" + stage + "」");
-    if (r) reload();
+    const before = p.stage;
+    setData((d: any) => d && { ...d, project: { ...d.project, stage } });
+    try {
+      await call("project.setStage", { id: p.id, expectedUpdatedAt: p.updated_at, stage });
+      reload();
+    } catch (e) {
+      setData((d: any) => d && { ...d, project: { ...d.project, stage: before } });
+      alert("階段沒有改成功：" + (e as Error).message);
+    }
   };
   return (
     <Page title={p.name} sub={p.code + "・" + (p.client_name || "客戶未填") + "・" + (p.start_date ? p.start_date.replace(/-/g, "/") : "日期未定") + (p.venue ? "・" + p.venue : "")}
@@ -161,16 +169,25 @@ function Tasks({ project, tasks, options, reload }: { project: any; tasks: any[]
   const [filter, setFilter] = useState("open");
   const [importing, setImporting] = useState(false);
   const { busy, run } = useAction();
-  const rows = tasks.filter(t => filter === "all" || (filter === "mine" ? t.owner_account === lk.me.account : !["已完成", "取消"].includes(t.status)));
+  // 狀態與進度改動先顯示在畫面上，停手 1.5 秒後一次寫入
+  const queue = useSaveQueue("task.updateMany", reload);
+  // 已完成、取消的燈號就是狀態本身；其他燈號等伺服器重算
+  const shown = queue.apply(tasks).map(t => ["已完成", "取消"].includes(t.status) ? { ...t, light: t.status } : t);
+  const rows = shown.filter(t => filter === "all" || (filter === "mine" ? t.owner_account === lk.me.account : !["已完成", "取消"].includes(t.status)));
   const save = async (values: any) => {
-    const r = await run(() => editing
-      ? call("task.update", { id: editing.id, expectedUpdatedAt: editing.updated_at, patch: values })
-      : call("task.create", { project_id: project.id, record: values }), "已儲存");
+    if (editing) {
+      if (values.status === "卡關" && !(values.blocker ?? editing.blocker)) { alert("改成「卡關」要填卡關原因"); return; }
+      queue.enqueue(editing, values);
+      setEditing(undefined);
+      return;
+    }
+    const r = await run(() => call("task.create", { project_id: project.id, record: values }), "已新增");
     if (r) { setEditing(undefined); reload(); }
   };
-  const quick = async (t: any, status: string) => {
-    const r = await run(() => call("task.update", { id: t.id, expectedUpdatedAt: t.updated_at, patch: { status } }), "已改成「" + status + "」");
-    if (r) reload();
+  const quick = (t: any, status: string) => {
+    // 卡關一定要寫原因：直接打開編輯視窗
+    if (status === "卡關" && !t.blocker) { setEditing({ ...t, status }); return; }
+    queue.enqueue(t, { status });
   };
   const remove = async () => {
     if (!editing || !confirm("確定刪除工作「" + editing.title + "」？")) return;
@@ -182,6 +199,7 @@ function Tasks({ project, tasks, options, reload }: { project: any; tasks: any[]
       <div className="toolbar">
         <Tabs tabs={[["open", "未完成"], ["mine", "我的"], ["all", "全部"]]} value={filter} onChange={setFilter} />
         <span className="spacer" />
+        {(queue.waiting > 0 || queue.saving > 0) && <span className="muted small save-state">{queue.saving > 0 ? "儲存中…" : queue.waiting + " 項待儲存"}</span>}
         <button className="btn" onClick={() => setImporting(true)}>代入參考工作</button>
         <button className="btn primary" onClick={() => setEditing(null)}>＋ 新增工作</button>
       </div>
@@ -199,7 +217,7 @@ function Tasks({ project, tasks, options, reload }: { project: any; tasks: any[]
         { key: "owner", label: "負責人", render: t => lk.nameOf(t.owner_account) },
         { key: "due", label: "截止", render: t => shortDate(t.due_date) },
         { key: "status", label: "狀態", render: t => (
-          <select value={t.status} onClick={e => e.stopPropagation()} onChange={e => quick(t, e.target.value)} aria-label="狀態" disabled={busy}>
+          <select value={t.status} onClick={e => e.stopPropagation()} onChange={e => quick(t, e.target.value)} aria-label="狀態">
             {(options?.statuses || [t.status]).map((s: string) => <option key={s}>{s}</option>)}
           </select>
         ) },

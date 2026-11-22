@@ -371,3 +371,77 @@ export function ImportButton({ action, hint, onDone }: { action: string; hint?: 
     </Modal>}
   </>;
 }
+
+/**
+ * 先改畫面、稍後一次寫入：狀態這類小改動立刻顯示在畫面上，停手 1.5 秒後把累積的改動用一個請求送出
+ * （批次動作，例如 task.updateMany）。同一筆改多次會合併成一次。失敗的那筆還原並提示，其他照存。
+ * 還有沒存的改動時離開頁面會先詢問。
+ */
+export function useSaveQueue(batchAction: string, onSaved: () => void, delayMs = 1500) {
+  const toast = useToast();
+  const pending = useRef<Record<string, { expected: string; patch: Record<string, unknown> }>>({});
+  const [overrides, setOverrides] = useState<Record<string, Record<string, unknown>>>({});
+  const [saving, setSaving] = useState(0);
+  const [waiting, setWaiting] = useState(0);
+  const timer = useRef<number | null>(null);
+  const flushRef = useRef<() => void>(() => {});
+
+  const flush = useCallback(async () => {
+    if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
+    const batch = pending.current;
+    pending.current = {};
+    setWaiting(0);
+    const ids = Object.keys(batch);
+    if (!ids.length) return;
+    setSaving(n => n + ids.length);
+    try {
+      const results = await call<any[]>(batchAction, { items: ids.map(id => ({ id, expectedUpdatedAt: batch[id].expected, patch: batch[id].patch })) });
+      const failed = results.filter(r => !r.ok);
+      setOverrides(o => {
+        const next = { ...o };
+        results.forEach(r => {
+          if (r.ok) next[r.id] = { ...(next[r.id] || {}), ...r.record };
+          else delete next[r.id];
+        });
+        return next;
+      });
+      if (failed.length) toast(failed.length + " 筆沒有存成功（" + (failed[0].code === "CONFLICT_ERROR" ? "別人剛改過，已還原成最新的" : failed[0].error) + "）", "err");
+      onSaved();
+    } catch (e) {
+      setOverrides(o => { const next = { ...o }; ids.forEach(id => { delete next[id]; }); return next; });
+      toast("儲存失敗：" + (e as Error).message + "，畫面已還原", "err");
+    } finally {
+      setSaving(n => n - ids.length);
+    }
+  }, [batchAction, onSaved, toast]);
+  flushRef.current = flush;
+
+  /** 改一筆：畫面立刻套用，排進待存清單。row 要有 id、updated_at。 */
+  const enqueue = useCallback((row: any, patch: Record<string, unknown>) => {
+    const cur = pending.current[row.id];
+    const ov = overrides[row.id] as any;
+    const expected = cur ? cur.expected : (ov && ov.updated_at) || row.updated_at;
+    pending.current[row.id] = { expected, patch: { ...(cur ? cur.patch : {}), ...patch } };
+    setWaiting(Object.keys(pending.current).length);
+    setOverrides(o => ({ ...o, [row.id]: { ...(o[row.id] || {}), ...patch } }));
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => flushRef.current(), delayMs);
+  }, [overrides, delayMs]);
+
+  /** 把待存與剛存好的改動套到列表上（伺服器的新資料到了、版本一樣或更新時就以伺服器為準）。 */
+  const apply = useCallback(<T extends { id: string; updated_at?: string }>(rows: T[]): T[] => rows.map(r => {
+    const ov = overrides[r.id] as any;
+    if (!ov) return r;
+    if (!pending.current[r.id] && ov.updated_at && r.updated_at && r.updated_at >= ov.updated_at) return r;
+    return { ...r, ...ov };
+  }), [overrides]);
+
+  // 離開頁面前：還有沒送的就先送；關分頁時提醒
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => { if (Object.keys(pending.current).length) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", warn);
+    return () => { window.removeEventListener("beforeunload", warn); flushRef.current(); };
+  }, []);
+
+  return { enqueue, apply, flush, saving, waiting };
+}
