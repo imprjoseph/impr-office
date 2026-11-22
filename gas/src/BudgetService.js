@@ -78,17 +78,28 @@ const BudgetService = {
     if (category && BUDGET_CATEGORIES.indexOf(category) === -1) throw new AppError(ERROR_CODES.VALIDATION, '科目不正確');
     return withScriptLock_(() => {
       assertCanEditBudget_(projectId, ctx);
-      const refs = indexBy_(repo_('price_refs').findAll(), 'id');
+      const all = repo_('price_refs').findAll();
+      const refs = indexBy_(all, 'id');
+      // 同品項＋類型的對客戶報價（任一列有填就用）
+      const quoteOf = ref => {
+        const same = all.filter(r => normName_(r.item) === normName_(ref.item) && normName_(r.type || '') === normName_(ref.type || ''));
+        const filled = same.find(r => r.quote_price !== null && r.quote_price !== undefined && r.quote_price !== '');
+        const est = same.find(r => !r.vendor_name);
+        return quoteFor_(filled ? filled.quote_price : null, est && est.unit_price != null ? est.unit_price : Number(ref.unit_price) || 0);
+      };
       const rows = items.map((it, i) => {
         const ref = refs[String(it.price_ref_id)];
         if (!ref) throw new AppError(ERROR_CODES.NOT_FOUND, '第 ' + (i + 1) + ' 項找不到報價資料，請重新整理');
         const qty = Number(it.quantity);
         if (!(qty > 0)) throw new AppError(ERROR_CODES.VALIDATION, '「' + ref.item + '」的數量要大於 0');
         const price = Number(ref.unit_price) || 0;
+        const q = quoteOf(ref);
         return {
+          quote_amount: q === null ? null : Math.round(q * qty),
           project_id: projectId, category: category || '硬體設備', item: ref.item + (ref.type && normName_(ref.type) !== normName_(ref.item) ? '（' + ref.type + '）' : ''),
           cost_estimate: Math.round(price * qty), supplier_id: ref.supplier_id || null, source: 'price_ref',
-          note: (ref.vendor_name ? ref.vendor_name + ' 報價' : '公司估算') + '：' + price + ' 元／' + (ref.unit || '單位') + ' × ' + qty,
+          note: (ref.vendor_name ? ref.vendor_name + ' 報價' : '公司估算') + '：' + price + ' 元／' + (ref.unit || '單位') + ' × ' + qty +
+            (q === null ? '' : '；對客戶報價 ' + q + ' 元／' + (ref.unit || '單位')),
         };
       });
       const saved = repo_('budget_lines').insertMany(rows, ctx.account);

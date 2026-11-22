@@ -78,4 +78,26 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('hazel', 'budget.addFromPrices', { project_id: project.id, items: [{ price_ref_id: chair.id, quantity: 0 }] }), /數量/);
     assert.throws(() => call('amy', 'import.priceRefs', { sheets }), /權限/);
   });
+  test('[報價參考] 對客戶報價：有填用填的、沒填依加成設定推算；帶入預算時報價與成本一起進來', ({ call, app }) => {
+    call('boss', 'import.priceRefs', { sheets: [
+      { name: '估算表', rows: [{ '品項': '長桌', '類型': '桌椅', '估價': '400', '單位': '張', '對客戶報價': '600' }, { '品項': '講桌', '類型': '桌椅', '估價': '2000', '單位': '座' }] },
+      { name: '報價', rows: [{ '品項': '長桌', '類型': '桌椅', '廠商': '金馬行', '估價': '350', '單位': '張' }] },
+    ] });
+    let cmp = call('amy', 'priceRef.compare');
+    const desk = cmp.find(g => g.item === '長桌');
+    assert.deepStrictEqual([desk.quote_price, desk.quote_is_markup], [600, false]);
+    assert.strictEqual(cmp.find(g => g.item === '講桌').quote_price, null);
+    const s = app.repo_('settings').findAll().find(x => x.key === 'quote_markup');
+    call('boss', 'settings.update', { id: s.id, expectedUpdatedAt: s.updated_at, patch: { value: '0.3' } });
+    cmp = call('amy', 'priceRef.compare');
+    const lectern = cmp.find(g => g.item === '講桌');
+    assert.deepStrictEqual([lectern.quote_price, lectern.quote_is_markup], [2600, true]);
+    const { project } = call('hazel', 'project.create', { record: { name: '桌椅案' } });
+    const lines = call('hazel', 'budget.addFromPrices', { project_id: project.id, items: [
+      { price_ref_id: desk.lowest.id, quantity: 10 }, { price_ref_id: lectern.estimate.id, quantity: 1 } ] });
+    assert.deepStrictEqual(lines.map(l => [l.quote_amount, l.cost_estimate]), [[6000, 3500], [2600, 2000]]);
+    assert.match(lines[0].note, /對客戶報價 600 元／張/);
+    const b = call('hazel', 'budget.get', { project_id: project.id });
+    assert.strictEqual(b.totals.quote, 8600);
+  });
 };

@@ -101,7 +101,9 @@ const TABLES = {
     'source, note') },
   // 報價參考：公司估算單價（vendor_name 空白）與各廠商報價，做預算時帶入。
   price_refs: { prefix: 'prc', cache: false, columns: cols_(
-    'item!, type, vendor_name, supplier_id, unit_price:num, unit, note, quoted_at:date') },
+    'item!, type, vendor_name, supplier_id, unit_price:num, unit, note, quoted_at:date, ' +
+    // 對客戶報價參考單價（填在公司估算那一列）；做預算時帶入「報價」欄
+    'quote_price:num') },
   project_changes: { prefix: 'chg', cache: false, columns: cols_(
     'project_id!, kind!, description!, quote_delta:num, cost_delta:num, change_date:date, note') },
   expense_claims: { prefix: 'exp', cache: false, columns: cols_(

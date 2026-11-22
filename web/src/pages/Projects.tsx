@@ -263,6 +263,7 @@ function PricePicker({ project, categories, onClose, onDone }: { project: any; c
   const priceOf = (g: any, id: string) => options(g).find((x: any) => x.id === id)?.unit_price || 0;
   const chosen = (data || []).filter(g => picked[keyOf(g)] && Number(picked[keyOf(g)].qty) > 0);
   const total = chosen.reduce((s, g) => s + priceOf(g, picked[keyOf(g)].ref) * Number(picked[keyOf(g)].qty), 0);
+  const quoteTotal = chosen.reduce((s, g) => s + (g.quote_price || 0) * Number(picked[keyOf(g)].qty), 0);
   const set = (g: any, patch: Partial<{ ref: string; qty: string }>) => {
     const k = keyOf(g);
     const cur = picked[k] || { ref: (g.lowest || g.estimate || options(g)[0] || {}).id || "", qty: "" };
@@ -281,7 +282,7 @@ function PricePicker({ project, categories, onClose, onDone }: { project: any; c
       </div>
       <Loading error={error} loading={loading && !data} />
       {data && (data.length === 0 ? <p className="muted">還沒有報價資料。請到「費用 → 報價參考」匯入或新增。</p> :
-        <div className="table-wrap"><table><thead><tr><th>品項</th><th>用哪個價格</th><th className="num">數量</th><th className="num">小計</th></tr></thead>
+        <div className="table-wrap"><table><thead><tr><th>品項</th><th>成本用哪個價格</th><th className="num">對客戶報價</th><th className="num">數量</th><th className="num">成本／報價小計</th></tr></thead>
           <tbody>{groups.map(g => {
             const k = keyOf(g), p = picked[k], opts = options(g);
             return (
@@ -290,13 +291,14 @@ function PricePicker({ project, categories, onClose, onDone }: { project: any; c
                 <td>{opts.length ? <select value={p?.ref || (g.lowest || g.estimate || opts[0]).id} onChange={e => set(g, { ref: e.target.value })}>
                   {opts.map((x: any) => <option key={x.id} value={x.id}>{(x.vendor_name || "公司估算") + "：" + money(x.unit_price) + " / " + (x.unit || g.unit || "")}</option>)}
                 </select> : <span className="muted">沒有單價</span>}</td>
+                <td className="num">{g.quote_price != null ? money(g.quote_price) : <span className="muted">未填</span>}</td>
                 <td className="num"><input type="number" min="0" style={{ width: 90 }} value={p?.qty || ""} disabled={!opts.length} onChange={e => set(g, { qty: e.target.value })} aria-label={g.item + " 數量"} /></td>
-                <td className="num">{p && Number(p.qty) > 0 ? money(priceOf(g, p.ref) * Number(p.qty)) : "—"}</td>
+                <td className="num">{p && Number(p.qty) > 0 ? <>{money(priceOf(g, p.ref) * Number(p.qty))}<small className="muted block">{g.quote_price != null ? money(g.quote_price * Number(p.qty)) : "—"}</small></> : "—"}</td>
               </tr>
             );
           })}</tbody></table></div>)}
       <div className="modal-foot">
-        <span className="muted small">已選 {chosen.length} 項，預估成本合計 {money(total)} 元</span>
+        <span className="muted small">已選 {chosen.length} 項，預估成本 {money(total)} 元・對客戶報價 {money(quoteTotal)} 元{quoteTotal > 0 ? "・毛利率 " + pct((quoteTotal - total) / quoteTotal) : ""}</span>
         <button className="btn" onClick={onClose}>取消</button>
         <button className="btn primary" disabled={busy || !chosen.length} onClick={add}>{busy ? "加入中…" : "加入預算"}</button>
       </div>

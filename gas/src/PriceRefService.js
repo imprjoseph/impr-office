@@ -2,7 +2,14 @@
  * 報價參考：每個品項有公司估算單價（vendor_name 空白）與各廠商報價。
  * 比價表依「品項＋類型」分組，列出估算價與每家廠商的報價、標出最低價；做專案預算時直接挑品項、填數量帶入。
  */
-const PRICE_REF_FIELDS_ = ['item', 'type', 'vendor_name', 'supplier_id', 'unit_price', 'unit', 'note', 'quoted_at'];
+const PRICE_REF_FIELDS_ = ['item', 'type', 'vendor_name', 'supplier_id', 'unit_price', 'quote_price', 'unit', 'note', 'quoted_at'];
+
+/** 品項的對客戶參考報價：有填就用；沒填且設定了加成比例，用成本 × (1 + 加成)；都沒有就是 null。 */
+function quoteFor_(quotePrice, cost) {
+  if (quotePrice !== null && quotePrice !== undefined && quotePrice !== '') return Number(quotePrice);
+  const markup = Number(setting_('quote_markup')) || 0;
+  return markup > 0 && cost ? Math.round(cost * (1 + markup)) : null;
+}
 
 function priceKey_(r) {
   return normName_(r.item) + '|' + normName_(r.type || '') + '|' + normName_(r.vendor_name || '');
@@ -39,6 +46,11 @@ const PriceRefService = {
       const g = groups[k];
       g.quotes.sort((a, b) => (a.unit_price == null ? 1e15 : a.unit_price) - (b.unit_price == null ? 1e15 : b.unit_price));
       g.lowest = g.quotes.find(q => q.unit_price != null) || null;
+      // 對客戶報價：品項任一列有填就用（通常填在公司估算那列）；沒填就依設定的加成比例，從估算價（或最低廠商價）推算。
+      const filled = [g.estimate].concat(g.quotes).find(r => r && r.quote_price !== null && r.quote_price !== undefined && r.quote_price !== '');
+      const base = g.estimate && g.estimate.unit_price != null ? g.estimate.unit_price : g.lowest ? g.lowest.unit_price : null;
+      g.quote_price = quoteFor_(filled ? filled.quote_price : null, base);
+      g.quote_is_markup = !filled && g.quote_price !== null;
       return g;
     }).sort((a, b) => String(a.type || '').localeCompare(String(b.type || '')) || String(a.item).localeCompare(String(b.item)));
   },
@@ -58,15 +70,17 @@ const PriceRefService = {
         const priceText = pickCol_(row, ['估價', '單價', '報價', '價格']);
         const price = priceText === null ? null : Number(String(priceText).replace(/[,\s元$]/g, ''));
         const vendor = pickCol_(row, ['廠商', '供應商']);
+        const qText = pickCol_(row, ['對客戶報價', '對外報價', '建議報價', '售價']);
+        const qPrice = qText === null ? null : Number(String(qText).replace(/[,\s元$]/g, ''));
         const rec = { item, type: pickCol_(row, ['類型', '類別']), vendor_name: vendor, unit_price: isFinite(price) ? price : null,
-          unit: pickCol_(row, ['單位']), note: pickCol_(row, ['備註']) };
+          quote_price: qText !== null && isFinite(qPrice) ? qPrice : null, unit: pickCol_(row, ['單位']), note: pickCol_(row, ['備註']) };
         if (vendor) rec.supplier_id = matchSupplier_(vendor, suppliers);
         Object.keys(rec).forEach(k => { if (rec[k] === null || rec[k] === undefined) delete rec[k]; });
         const cur = existing[priceKey_(rec)];
         if (!cur) { inserts.push(rec); existing[priceKey_(rec)] = rec; return; }
         if (!cur.id) { skipped++; return; }
         const patch = {};
-        ['unit_price', 'unit', 'note', 'supplier_id'].forEach(k => { if (k in rec && String(cur[k] == null ? '' : cur[k]) !== String(rec[k])) patch[k] = rec[k]; });
+        ['unit_price', 'quote_price', 'unit', 'note', 'supplier_id'].forEach(k => { if (k in rec && String(cur[k] == null ? '' : cur[k]) !== String(rec[k])) patch[k] = rec[k]; });
         if (Object.keys(patch).length) patches[cur.id] = patch; else skipped++;
       }));
       if (inserts.length) repo.insertMany(inserts, ctx.account);
