@@ -62,7 +62,7 @@ function migrationSourceId_(key) {
 }
 
 /**
- * 從網頁「系統設定 → 搬舊資料」執行（只有 admin）。新系統還沒有人員時先自動從帳號中心同步，
+ * 從網頁「系統設定 → 搬舊資料」執行（只有 admin）。每次執行前先從帳號中心同步人員，
  * 舊資料的負責人才對得上帳號。
  */
 const MigrationService = {
@@ -77,8 +77,8 @@ const MigrationService = {
   },
 
   run(dry, ctx) {
-    let synced = null;
-    if (!repo_('people').findAll().length) synced = PeopleService.syncFromAccountCenter(ctx);
+    // 每次都先從帳號中心同步人員：帳號中心剛新增或改名的人，舊資料的負責人才對得上。
+    const synced = PeopleService.syncFromAccountCenter(ctx);
     const report = runMigration_(!!dry);
     return { dry: !!dry, synced, report, text: formatMigrationReport_(report) };
   },
