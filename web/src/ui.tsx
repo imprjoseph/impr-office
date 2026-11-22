@@ -206,7 +206,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   );
 }
 
-export type FieldType = "text" | "number" | "date" | "time" | "textarea" | "select" | "person" | "project" | "client" | "supplier" | "checkbox" | "url" | "email" | "multi";
+export type FieldType = "text" | "number" | "date" | "time" | "textarea" | "select" | "person" | "project" | "client" | "supplier" | "checkbox" | "url" | "email" | "multi" | "image";
 export interface Field { name: string; label: string; type?: FieldType; options?: string[] | [string, string][]; required?: boolean; hint?: string; full?: boolean; filter?: (row: any) => boolean }
 
 export function FieldInput({ f, value, onChange }: { f: Field; value: any; onChange: (v: any) => void }) {
@@ -224,6 +224,7 @@ export function FieldInput({ f, value, onChange }: { f: Field; value: any; onCha
     case "number": return <input {...common} type="number" inputMode="decimal" step="any" value={value ?? ""} onChange={e => onChange(e.target.value === "" ? null : Number(e.target.value))} />;
     case "date": case "time": case "url": case "email": return <input {...common} type={f.type} value={value ?? ""} onChange={e => onChange(e.target.value)} />;
     case "checkbox": return <input {...common} type="checkbox" checked={!!value} onChange={e => onChange(e.target.checked)} />;
+    case "image": return <ImageInput value={value} onChange={onChange} />;
     // 複選：存成頓號分隔的文字（例如「論壇、研討會」）
     case "multi": {
       const picked = String(value || "").split(/[,、，]/).map(s => s.trim()).filter(Boolean);
@@ -444,4 +445,54 @@ export function useSaveQueue(batchAction: string, onSaved: () => void, delayMs =
   }, []);
 
   return { enqueue, apply, flush, saving, waiting };
+}
+
+/**
+ * 照片欄：選圖（手機可直接拍照）後在瀏覽器裡縮到長邊 480px、轉 JPEG，存成 data URL（約 30KB 內），
+ * 直接放進資料庫，不用另外的雲端硬碟權限。原圖要保留的話另外貼「原圖連結」。
+ */
+export async function compressImage(file: File, maxSide = 480, maxChars = 44000): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error("讀不到這張圖片")); i.src = url; });
+    let side = maxSide;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const scale = Math.min(1, side / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      for (const q of [0.75, 0.6, 0.45]) {
+        const data = canvas.toDataURL("image/jpeg", q);
+        if (data.length <= maxChars) return data;
+      }
+      side = Math.round(side * 0.75);
+    }
+    throw new Error("這張圖片太大，請換一張");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+function ImageInput({ value, onChange }: { value: any; onChange: (v: any) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pick = async (f?: File | null) => {
+    if (!f) return;
+    setErr(""); setBusy(true);
+    try { onChange(await compressImage(f)); } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); if (input.current) input.current.value = ""; }
+  };
+  return (
+    <div className="image-input">
+      {value ? <img src={value} alt="照片" /> : <div className="image-empty">沒有照片</div>}
+      <div className="page-actions">
+        <button type="button" className="btn small" disabled={busy} onClick={() => input.current?.click()}>{busy ? "處理中…" : value ? "換照片" : "選擇照片／拍照"}</button>
+        {value && <button type="button" className="btn small danger-link" onClick={() => onChange(null)}>移除</button>}
+      </div>
+      <input ref={input} type="file" accept="image/*" capture="environment" hidden onChange={e => pick(e.target.files?.[0])} />
+      {err && <p className="error small">{err}</p>}
+    </div>
+  );
 }

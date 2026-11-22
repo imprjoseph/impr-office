@@ -63,16 +63,21 @@ function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { ite
   const [category, setCategory] = useState("");
   const [status, setStatus] = useState("");
   const [keeper, setKeeper] = useState("");
+  const [place, setPlace] = useState("");
   const [q, setQ] = useState("");
   const all: any[] = items.data || [];
+  const places = Array.from(new Set(all.map(i => i.location).filter(Boolean))).sort();
+  // 有照片的項目一次讀縮圖
+  const photoIds = all.filter(i => i.has_photo).map(i => i.id);
+  const photos = useLoad<Record<string, string>>(photoIds.length ? "inventory.photos" : null, { ids: photoIds });
   const cats = Array.from(new Set(categories.concat(all.filter(i => kind === "全部" || i.kind === kind).map(i => i.category || "未分類"))))
     .filter(c => all.some(i => (kind === "全部" || i.kind === kind) && (i.category || "未分類") === c));
   const keepers = Array.from(new Set(all.map(i => i.manager_account).filter(Boolean)));
   const statusTest = (STATUS_FILTERS.find(f => f[0] === status) || STATUS_FILTERS[0])[2];
   const count = (key: string) => all.filter((STATUS_FILTERS.find(f => f[0] === key) as any)[2]).length;
   const rows = all.filter(i => (kind === "全部" || i.kind === kind) && (!category || (i.category || "未分類") === category) && statusTest(i) &&
-    (!keeper || i.manager_account === keeper) &&
-    (!q || [i.name, i.category, i.spec, i.location].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
+    (!keeper || i.manager_account === keeper) && (!place || i.location === place) &&
+    (!q || [i.name, i.code, i.category, i.spec, i.location].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
   // 分組：大項 › 中項，中項依系統設定的清單順序
   const order = (c: string) => { const k = categories.indexOf(c); return k < 0 ? 999 : k; };
   const groups: Record<string, any[]> = {};
@@ -90,7 +95,8 @@ function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { ite
       </select>
       <select value={keeper} onChange={e => setKeeper(e.target.value)} aria-label="保管人"><option value="">全部保管人</option>
         {keepers.map(k => <option key={k} value={k}>{lk.nameOf(k)}</option>)}</select>
-      <input type="search" placeholder="搜尋名稱、規格、位置" value={q} onChange={e => setQ(e.target.value)} />
+      <select value={place} onChange={e => setPlace(e.target.value)} aria-label="放置地點"><option value="">全部放置地點</option>{places.map(p => <option key={p}>{p}</option>)}</select>
+      <input type="search" placeholder="搜尋名稱、編號、規格、地點" value={q} onChange={e => setQ(e.target.value)} />
       <span className="muted small">{rows.length} 項</span>
     </div>
     <Loading error={items.error} loading={items.loading && !items.data} />
@@ -101,7 +107,9 @@ function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { ite
       <section key={g} className="inv-group">
         <h3><span className="muted">{k} ›</span> {cat} <span className="muted small">{groups[g].length} 項</span></h3>
         <Table rows={groups[g]} onRow={onEdit} columns={[
-          { key: "name", label: "名稱", render: i => <><b>{i.name}</b><small className="muted block">{[i.spec, i.location].filter(Boolean).join("・")}</small></> },
+          { key: "photo", label: "", render: i => photos.data?.[i.id] ? <img className="thumb" src={photos.data[i.id]} alt={i.name} /> : <span className="thumb thumb-empty" /> },
+          { key: "name", label: "名稱", render: i => <><b>{i.name}</b><small className="muted block">{[i.code, i.spec].filter(Boolean).join("・")}</small></> },
+          { key: "place", label: "放置地點", hideSm: true, render: i => i.location || <span className="muted">—</span> },
           { key: "mode", label: "管理方式", hideSm: true, render: i => i.kind === "耗材" ? "庫存" : i.track_mode },
           { key: "q", label: "數量", num: true, render: i => i.kind === "耗材"
             ? <span className={i.low_stock ? "red" : ""}>庫存 {i.total} {i.unit || ""}</span>
@@ -158,6 +166,13 @@ function Loans({ loans, busy, onReturn }: { loans: any; busy: boolean; onReturn:
 }
 
 function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void }) {
+  // 列表不帶照片：編輯時先把這一項的照片讀進來，再顯示表單
+  const photo = useLoad<Record<string, string>>(item?.has_photo ? "inventory.photos" : null, { ids: item ? [item.id] : [] });
+  if (item?.has_photo && !photo.data) return <Modal title={item.name} onClose={onClose}><Loading error={photo.error} loading /></Modal>;
+  return <ItemFormInner item={item && photo.data ? { ...item, photo: photo.data[item.id] || null } : item} opts={opts} onClose={onClose} onSaved={onSaved} />;
+}
+
+function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void }) {
   const [kind, setKind] = useState(item?.kind || "資產");
   const [mode, setMode] = useState(item?.track_mode || "整批");
   const [converting, setConverting] = useState(false);
@@ -165,7 +180,8 @@ function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: an
   const isNew = !item;
   const consumable = kind === "耗材";
   const fields: Field[] = [
-    { name: "name", label: "名稱", required: true, full: true },
+    { name: "name", label: "名稱", required: true },
+    { name: "code", label: "編號（空白自動給 R-0001…）" },
     ...(isNew ? [
       { name: "kind", label: "大項", type: "select", options: opts.kinds, required: true, hint: "資產：用完要歸還；耗材：用掉就沒了" } as Field,
       ...(!consumable ? [{ name: "track_mode", label: "管理方式", type: "select", options: opts.modes, required: true, hint: "逐台：每台有財產編號（筆電、攝影機）；整批：只記數量（延長線、對講機）" } as Field] : []),
@@ -177,9 +193,10 @@ function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: an
       ? [...(isNew ? [{ name: "quantity", label: "期初庫存", type: "number" } as Field] : []), { name: "safety_stock", label: "安全存量（低於就提醒）", type: "number" } as Field]
       : mode === "整批" ? [{ name: "quantity", label: "總數量", type: "number" } as Field]
       : isNew ? [{ name: "quantity", label: "台數（會自動建立單台資料，財產編號之後可改）", type: "number" } as Field] : []),
-    { name: "location", label: "存放位置" },
+    { name: "location", label: "放置地點（例如：倉庫 B 第 2 層）" },
     { name: "manager_account", label: "保管人", type: "person", hint: "負責這項資材的人；逐台的可在單台清單另外指定每台的保管人" },
-    { name: "photo_url", label: "照片連結", type: "url" },
+    { name: "photo", label: "照片", type: "image", full: true },
+    { name: "photo_url", label: "原圖連結（選填，例如雲端硬碟）", type: "url", full: true },
     { name: "note", label: "備註", type: "textarea" },
   ];
   const save = async (v: any) => {

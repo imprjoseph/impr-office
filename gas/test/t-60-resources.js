@@ -82,6 +82,21 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('pt1', 'partTimer.list'), /權限/);
   });
 
+  test('[資材] 編號自動給、不能重複；照片只收壓縮小圖，列表不帶照片、另外讀', ({ call }) => {
+    const a = call('hazel', 'inventory.create', { record: { name: '易拉展', category: '展架', quantity: 2, location: '倉庫 B 第 2 層' } });
+    assert.strictEqual(a.code, 'R-0001');
+    const b = call('hazel', 'inventory.create', { record: { name: 'X 展架', category: '展架', quantity: 3 } });
+    assert.strictEqual(b.code, 'R-0002');
+    assert.throws(() => call('hazel', 'inventory.create', { record: { name: '重複編號', category: '展架', code: 'r-0001' } }), /已經給「易拉展」用了/);
+    const photo = 'data:image/jpeg;base64,' + 'A'.repeat(2000);
+    call('hazel', 'inventory.update', { id: a.id, expectedUpdatedAt: a.updated_at, patch: { photo } });
+    assert.throws(() => call('hazel', 'inventory.update', { id: b.id, expectedUpdatedAt: b.updated_at, patch: { photo: 'http://x/y.jpg' } }), /照片格式/);
+    assert.throws(() => call('hazel', 'inventory.update', { id: b.id, expectedUpdatedAt: b.updated_at, patch: { photo: 'data:image/jpeg;base64,' + 'A'.repeat(50000) } }), /照片太大/);
+    const row = call('amy', 'inventory.withStock').find(i => i.id === a.id);
+    assert.deepStrictEqual([row.has_photo, 'photo' in row, row.location], [true, false, '倉庫 B 第 2 層']);
+    assert.strictEqual(call('amy', 'inventory.photos', { ids: [a.id, b.id] })[a.id], photo);
+  });
+
   test('[SOP] 新增是草稿；發布新版時舊版自動失效；依專案類型篩選', ({ call }) => {
     const v1 = call('boss', 'sop.create', { record: { title: '報到流程', version: '1', project_types: '論壇、研討會' } });
     assert.strictEqual(v1.status, 'draft');

@@ -146,7 +146,9 @@ const TABLES = {
   // 整批資產的 quantity 是總數；耗材的 quantity 是目前庫存（領用扣、入庫加）；逐台的數量由 units 算，不看 quantity。
   inventory: { prefix: 'inv', cache: false, columns: cols_(
     'name!, category, quantity:num, unit, location, manager_account, photo_url, note, ' +
-    'kind, track_mode, spec, safety_stock:num') },
+    'kind, track_mode, spec, safety_stock:num, ' +
+    // code：資材編號（R-0001 起自動給，可改）；photo：瀏覽器壓縮後的小圖（data URL，約 30KB 內），photo_url 放原圖連結
+    'code, photo') },
   inventory_units: { prefix: 'inu', cache: false, columns: cols_(
     'inventory_id!, asset_tag!, serial_no, status!, location, purchase_date:date, cost:num, warranty_until:date, note, ' +
     // 這一台的保管人（例如配給某同仁的筆電）；空白就由資材的保管人負責

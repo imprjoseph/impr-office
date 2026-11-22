@@ -34,8 +34,8 @@ function mapInventoryCategory_(v) {
   return OLD_INVENTORY_CATEGORY_MAP_[s] || s;
 }
 
-const INVENTORY_FIELDS_ = ['name', 'kind', 'track_mode', 'category', 'spec', 'quantity', 'unit', 'safety_stock', 'location',
-  'manager_account', 'photo_url', 'note'];
+const INVENTORY_FIELDS_ = ['code', 'name', 'kind', 'track_mode', 'category', 'spec', 'quantity', 'unit', 'safety_stock', 'location',
+  'manager_account', 'photo', 'photo_url', 'note'];
 const UNIT_FIELDS_ = ['asset_tag', 'serial_no', 'status', 'location', 'custodian_account', 'purchase_date', 'cost', 'warranty_until', 'note'];
 
 /** 舊資料沒有 kind / track_mode：一律當整批資產（原本物資系統就是這樣管）。 */
@@ -64,6 +64,28 @@ function normalizeItem_(record, current) {
 
 function unitsOf_(itemId) {
   return repo_('inventory_units').findWhere(u => u.inventory_id === itemId);
+}
+
+/** 資材編號：R-0001 起，取目前最大號 +1（含已刪除的，編號不重複使用）。 */
+function nextItemCode_() {
+  const max = repo_('inventory').findAll({ includeDeleted: true })
+    .map(i => Number((String(i.code || '').match(/^R-(\d+)$/) || [])[1]) || 0).reduce((a, b) => Math.max(a, b), 0);
+  return 'R-' + ('0000' + (max + 1)).slice(-4);
+}
+
+function assertItemCode_(code, selfId) {
+  const c = String(code || '').trim();
+  if (!c) throw new AppError(ERROR_CODES.VALIDATION, '請填資材編號');
+  const dupe = repo_('inventory').findAll().find(i => i.id !== selfId && normName_(i.code) === normName_(c));
+  if (dupe) throw new AppError(ERROR_CODES.VALIDATION, '編號 ' + c + ' 已經給「' + dupe.name + '」用了');
+}
+
+/** 照片只收瀏覽器壓縮過的小圖（data:image/…;base64），太大放不進試算表儲存格。 */
+function assertPhoto_(photo) {
+  if (photo === null || photo === undefined || photo === '') return;
+  const s = String(photo);
+  if (!/^data:image\/(jpeg|png|webp);base64,/.test(s)) throw new AppError(ERROR_CODES.VALIDATION, '照片格式不正確');
+  if (s.length > 45000) throw new AppError(ERROR_CODES.VALIDATION, '照片太大，請重新選擇（系統會自動縮小）');
 }
 
 function nextAssetTag_() {
@@ -99,7 +121,10 @@ const InventoryService = {
       }
       const low = kind === INVENTORY_KIND.CONSUMABLE && i.safety_stock !== null && i.safety_stock !== undefined && i.safety_stock !== '' &&
         total <= Number(i.safety_stock);
-      return Object.assign({}, i, { kind, track_mode: mode, total, available, on_loan: onLoan, repair, low_stock: low });
+      // 列表不帶照片本身（每張約 30KB，45 項就 1MB 多，會拖慢載入）；要看時另外讀
+      const row = Object.assign({}, i, { kind, track_mode: mode, total, available, on_loan: onLoan, repair, low_stock: low, has_photo: !!i.photo });
+      delete row.photo;
+      return row;
     });
   },
 
@@ -111,8 +136,11 @@ const InventoryService = {
 
   create(record, ctx) {
     const data = normalizeItem_(record, null);
+    assertPhoto_(data.photo);
     return withScriptLock_(() => {
       assertUniqueName_('inventory', 'name', data, '資材');
+      if (!data.code) data.code = nextItemCode_();
+      assertItemCode_(data.code, null);
       const item = repo_('inventory').insert(data, ctx.account);
       if (itemKind_(item) === INVENTORY_KIND.CONSUMABLE && Number(item.quantity) > 0) {
         repo_('stock_moves').insert({ inventory_id: item.id, kind: STOCK_MOVE.IN, quantity: Number(item.quantity), balance: Number(item.quantity),
@@ -141,6 +169,8 @@ const InventoryService = {
         if (Number(patch.quantity) < onLoan) throw new AppError(ERROR_CODES.VALIDATION, '總數不能少於借出中的 ' + onLoan);
       }
       if ('name' in patch) assertUniqueName_('inventory', 'name', { id, name: patch.name }, '資材');
+      if ('code' in patch) assertItemCode_(patch.code, id);
+      if ('photo' in patch) assertPhoto_(patch.photo);
       if ('category' in patch && patch.category && patch.category !== item.category && inventoryCategories_().indexOf(patch.category) === -1) {
         throw new AppError(ERROR_CODES.VALIDATION, '中項分類「' + patch.category + '」不在清單內，請管理者到系統設定的 inventory_categories 加上');
       }
@@ -353,6 +383,13 @@ function inventoryRoutes_() {
       return repo.markDeleted(loadCurrentForWrite_(repo, id, expected), ctx.account);
     }) },
     'inventory.setMode': { roles: r, handler: (p, ctx) => InventoryService.setMode(...idArgs(p), p.kind || null, p.track_mode || null, ctx) },
+    'inventory.photos': { roles: r, handler: p => {
+      const want = {};
+      requireArray_(p, 'ids').forEach(id => { want[id] = true; });
+      const out = {};
+      repo_('inventory').findAll().forEach(i => { if (want[i.id] && i.photo) out[i.id] = i.photo; });
+      return out;
+    } },
     'inventory.units': { roles: r, handler: p => InventoryService.units(requireString_(p, 'inventory_id')) },
     'inventory.addUnit': { roles: r, handler: (p, ctx) =>
       InventoryService.addUnit(requireString_(p, 'inventory_id'), pickAllowed_(p.record || {}, UNIT_FIELDS_, '單台資料'), ctx) },
