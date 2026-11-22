@@ -6,7 +6,7 @@ const SOP_STATUS = { DRAFT: 'draft', ACTIVE: 'active', SUPERSEDED: 'superseded' 
 const SOP_FIELDS_ = ['title', 'category', 'version', 'effective_date', 'file_url', 'project_types', 'note'];
 const MEDIA_FIELDS_ = ['outlet', 'name', 'title', 'beat', 'phone', 'mobile', 'email', 'line_id', 'last_contact', 'note'];
 const CASE_FIELDS_ = ['title', 'client_name', 'year', 'category', 'summary', 'link', 'project_id'];
-const CREDENTIAL_FIELDS_ = ['service', 'url', 'username', 'password', 'owner', 'note'];
+const CREDENTIAL_FIELDS_ = ['category', 'service', 'url', 'username', 'password', 'owner', 'note'];
 
 const ResourceService = {
   /**

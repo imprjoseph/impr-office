@@ -19,10 +19,12 @@ export default function Resources() {
         { name: "category", label: "類別" }, { name: "project_id", label: "對應專案", type: "project" }, { name: "link", label: "成果連結", type: "url", full: true },
         { name: "summary", label: "摘要", type: "textarea" },
       ]} columns={[{ key: "title", label: "案例" }, { key: "client_name", label: "客戶" }, { key: "year", label: "年度" }, { key: "category", label: "類別", hideSm: true }]} />}
-      {tab === "credentials" && <CrudPage title="帳密大全" sub="只有管理者看得到；每次開啟都會留下查看紀錄。" prefix="credential" canWrite fields={[
-        { name: "service", label: "服務", required: true }, { name: "url", label: "網址", type: "url" }, { name: "username", label: "帳號" },
+      {tab === "credentials" && <CrudPage title="帳密大全" sub="只有管理者看得到；每次開啟都會留下查看紀錄。" prefix="credential" canWrite
+        importAction="import.credentials" importHint="表頭要有「項目」，可有「類別」「帳號」「密碼」「網址」「備註」。檔案只在這台電腦的瀏覽器裡讀取，直接存進公司資料庫；同項目＋帳號的會更新密碼。"
+        searchKeys={["category", "service", "username", "note"]} fields={[
+        { name: "category", label: "類別" }, { name: "service", label: "項目", required: true }, { name: "url", label: "網址", type: "url" }, { name: "username", label: "帳號" },
         { name: "password", label: "密碼" }, { name: "owner", label: "負責人" }, { name: "note", label: "備註", type: "textarea" },
-      ]} columns={[{ key: "service", label: "服務" }, { key: "username", label: "帳號" }, { key: "password", label: "密碼" }, { key: "owner", label: "負責人", hideSm: true }]} />}
+      ]} columns={[{ key: "service", label: "項目", render: c => <><b>{c.service}</b><small className="muted block">{c.category || ""}</small></> }, { key: "username", label: "帳號" }, { key: "password", label: "密碼" }, { key: "note", label: "備註", hideSm: true }]} />}
     </>
   );
 }

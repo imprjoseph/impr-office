@@ -4,6 +4,7 @@
  */
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { call, ApiError, Me } from "./api";
+import { readXlsx, SheetRows } from "./xlsx";
 
 // ---------- 格式 ----------
 export const money = (n: unknown) => (n === null || n === undefined || n === "" ? "—" : Number(n).toLocaleString("zh-TW", { maximumFractionDigits: 0 }));
@@ -276,9 +277,11 @@ export function RecordForm({ fields, initial, onSubmit, onCancel, submitLabel, b
 /**
  * 一般主資料頁：列表、搜尋、新增、編輯、刪除。prefix 對應後端 crudRoutes_ 的路由前綴。
  */
-export function CrudPage({ title, sub, prefix, fields, columns, canWrite, listAction, searchKeys, onChanged }: {
+export function CrudPage({ title, sub, prefix, fields, columns, canWrite, listAction, searchKeys, onChanged, importAction, importHint }: {
   title: string; sub?: string; prefix: string; fields: Field[]; columns: Column<any>[]; canWrite: boolean;
   listAction?: string; searchKeys?: string[]; onChanged?: () => void;
+  /** 有填就多一顆「從 Excel 匯入」：檔案在瀏覽器裡讀，直接送到後端這個動作。 */
+  importAction?: string; importHint?: string;
 }) {
   const { data, error, loading, reload } = useLoad<any[]>(listAction || prefix + ".list");
   const [editing, setEditing] = useState<any | null | undefined>(undefined);
@@ -297,7 +300,10 @@ export function CrudPage({ title, sub, prefix, fields, columns, canWrite, listAc
     if (r) { setEditing(undefined); reload(); onChanged && onChanged(); }
   };
   return (
-    <Page title={title} sub={sub} actions={canWrite && <button className="btn primary" onClick={() => setEditing(null)}>＋ 新增</button>}>
+    <Page title={title} sub={sub} actions={<>
+      {importAction && <ImportButton action={importAction} hint={importHint} onDone={() => { reload(); onChanged && onChanged(); }} />}
+      {canWrite && <button className="btn primary" onClick={() => setEditing(null)}>＋ 新增</button>}
+    </>}>
       <div className="toolbar"><input type="search" placeholder="搜尋" value={q} onChange={e => setQ(e.target.value)} aria-label="搜尋" /><span className="muted">{rows.length} 筆</span></div>
       <Loading error={error} loading={loading && !data} />
       {data && <Table rows={rows} columns={columns} onRow={canWrite ? r => setEditing(r) : undefined} />}
@@ -309,4 +315,45 @@ export function CrudPage({ title, sub, prefix, fields, columns, canWrite, listAc
       )}
     </Page>
   );
+}
+
+/**
+ * 從 Excel 匯入：選檔後在瀏覽器裡讀出各工作表，先顯示要匯入的工作表與筆數（不顯示內容），確認後送到後端。
+ * 檔案不經過其他服務，也不留在瀏覽器裡。
+ */
+export function ImportButton({ action, hint, onDone }: { action: string; hint?: string; onDone: () => void }) {
+  const [sheets, setSheets] = useState<SheetRows[] | null>(null);
+  const [fileName, setFileName] = useState("");
+  const [err, setErr] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const toast = useToast();
+  const { busy, run } = useAction();
+  const pick = async (f?: File | null) => {
+    if (!f) return;
+    setErr(""); setFileName(f.name);
+    try { setSheets((await readXlsx(f)).filter(s => s.rows.length)); }
+    catch (e) { setErr((e as Error).message || "讀不到這個檔案，請確認是 .xlsx"); setSheets([]); }
+    if (input.current) input.current.value = "";
+  };
+  const go = async () => {
+    const r = await run(() => call<any>(action, { sheets: (sheets || []).map(s => ({ name: s.name, rows: s.rows })) }));
+    if (r) { toast("匯入完成：新增 " + r.inserted + " 筆、更新 " + r.updated + " 筆、略過 " + r.skipped + " 筆"); setSheets(null); onDone(); }
+  };
+  const total = (sheets || []).reduce((n, s) => n + s.rows.length, 0);
+  return <>
+    <button className="btn" onClick={() => input.current?.click()}>從 Excel 匯入</button>
+    <input ref={input} type="file" accept=".xlsx" hidden onChange={e => pick(e.target.files?.[0])} />
+    {sheets && <Modal title={"匯入：" + fileName} onClose={() => setSheets(null)}>
+      {err && <p className="error">{err}</p>}
+      {hint && <p className="muted small">{hint}</p>}
+      {sheets.length > 0 && <>
+        <p>讀到 {sheets.length} 個工作表，共 {total} 列：</p>
+        <ul className="small">{sheets.map(s => <li key={s.name}>{s.name}：{s.rows.length} 列（欄位：{s.header.filter(Boolean).join("、")}）</li>)}</ul>
+        <p className="muted small">已存在的資料會更新、不會重複新增。</p>
+      </>}
+      {!err && sheets.length === 0 && <p className="error">這個檔案裡沒有讀到資料列。</p>}
+      <div className="modal-foot"><button className="btn" onClick={() => setSheets(null)}>取消</button>
+        <button className="btn primary" disabled={busy || !total} onClick={go}>{busy ? "匯入中…" : "匯入 " + total + " 列"}</button></div>
+    </Modal>}
+  </>;
 }

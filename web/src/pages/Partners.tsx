@@ -49,14 +49,18 @@ export function Suppliers() {
   const fields: Field[] = [
     { name: "name", label: "名稱", required: true, full: true }, { name: "category", label: "類別", type: "select", options: cats.data || [] },
     { name: "tax_id", label: "統一編號" }, { name: "service_items", label: "服務項目", full: true },
-    { name: "contact_name", label: "聯絡人" }, { name: "contact_phone", label: "電話" }, { name: "contact_email", label: "Email", type: "email" },
+    { name: "phone", label: "公司電話" }, { name: "business_hours", label: "營業時間" },
+    { name: "address", label: "地址", full: true }, { name: "website", label: "官方網站", type: "url", full: true },
+    { name: "contact_name", label: "業務承辦人" }, { name: "contact_phone", label: "承辦人電話" }, { name: "contact_email", label: "Email", type: "email" },
     { name: "note", label: "備註", type: "textarea" },
   ];
   return <CrudPage title="供應商" sub="全公司唯一的供應商名單；評分只能在專案結案時評。" prefix="supplier" canWrite fields={fields}
+    importAction={lk.can("admin", "manager") ? "import.suppliers" : undefined}
+    importHint="每個工作表是一個類別（攝影、主持人、口譯…），表頭要有「廠商名稱」。同名的供應商只補上空白的欄位，不會覆蓋已經改過的資料。"
     onChanged={() => lk.refresh(["suppliers"])} columns={[
       { key: "name", label: "供應商", render: s => <><b>{s.name}</b><small className="muted block">{[s.service_items, s.tax_id && "統編 " + s.tax_id].filter(Boolean).join("・")}</small></> },
       { key: "category", label: "類別" },
-      { key: "contact", label: "聯絡人", hideSm: true, render: s => (s.contact_name || "—") + (s.contact_phone ? " " + s.contact_phone : "") },
+      { key: "contact", label: "聯絡方式", render: s => <>{s.contact_name && <b className="block">{s.contact_name}</b>}<ContactInfo phone={s.contact_phone || s.phone} email={s.contact_email} /></> },
       { key: "rating", label: "評價", num: true, render: s => s.rating_count ? Number(s.avg_rating).toFixed(1) + " ★（" + s.rating_count + "）" : "—" },
     ]} />;
 }

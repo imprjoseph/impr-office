@@ -10,9 +10,10 @@ const CLIENT_FIELDS_ = ['name', 'tax_id', 'industry', 'address', 'phone', 'websi
 const CONTACT_FIELDS_ = ['client_id', 'supplier_id', 'name', 'title', 'phone', 'email', 'note'];
 const CLIENT_ACTIVITY_FIELDS_ = ['client_id', 'project_id', 'activity_date', 'kind', 'summary', 'owner_account'];
 // avg_rating / rating_count 不開放輸入：只能由專案結案評分重算。
-const SUPPLIER_FIELDS_ = ['name', 'category', 'service_items', 'tax_id', 'contact_name', 'contact_phone', 'contact_email', 'note'];
-const SUPPLIER_CATEGORIES = ['場地', '音響', '燈光', '舞台', '視訊／LED', '攝影／錄影', '印刷／輸出', '佈置／花藝',
-  '餐飲', '交通', '住宿', '主持／表演', '口譯', '人力', '設計', '其他'];
+const SUPPLIER_FIELDS_ = ['name', 'category', 'service_items', 'tax_id', 'phone', 'address', 'business_hours', 'website',
+  'contact_name', 'contact_phone', 'contact_email', 'note'];
+const SUPPLIER_CATEGORIES = ['場地', '音響', '燈光', '舞台', '視訊／LED', '攝影／錄影', '影像製作', '動畫', '印刷／輸出', '佈置／花藝',
+  '桌椅租賃', '餐飲', '交通', '住宿', '主持／表演', '口譯', '人力', '設計', '修圖', '網頁製作', '媒體廣告', '其他'];
 
 const BOOKING_STATUS = { CONFIRMED: 'confirmed', CANCELLED: 'cancelled' };
 const RATING_MIN_ = 1;

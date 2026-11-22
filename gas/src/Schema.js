@@ -65,7 +65,7 @@ const TABLES = {
     'client_id!, project_id, activity_date:date!, kind, summary!, owner_account') },
   suppliers: { prefix: 'sup', cache: true, columns: cols_(
     'name!, category, service_items, tax_id, contact_name, contact_phone, contact_email, note, ' +
-    'avg_rating:num, rating_count:num') },
+    'avg_rating:num, rating_count:num, phone, address, business_hours, website') },
   supplier_bookings: { prefix: 'bkg', cache: false, columns: cols_(
     'supplier_id!, project_id!, start_date:date!, end_date:date!, status!, note') },
   supplier_ratings: { prefix: 'srt', cache: false, columns: cols_(
@@ -163,7 +163,7 @@ const TABLES = {
     'title!, client_name, year, category, summary, link, project_id') },
   // 帳密大全：只有 admin 讀得到（見 ResourceService）。
   credentials: { prefix: 'crd', cache: false, columns: cols_(
-    'service!, url, username, password, owner, note') },
+    'service!, url, username, password, owner, note, category') },
 
   // ---- AI 與系統 ----
   ai_jobs: { prefix: 'aij', cache: false, columns: cols_(
