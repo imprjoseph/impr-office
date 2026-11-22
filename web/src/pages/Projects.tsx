@@ -13,7 +13,7 @@ const PROJECT_FIELDS: Field[] = [
   { name: "venue", label: "地點" },
   { name: "start_date", label: "活動日期", type: "date", hint: "套用範本時，工作截止日以這天為 T 日" },
   { name: "end_date", label: "結束日期", type: "date" },
-  { name: "pm_account", label: "PM", type: "person" },
+  { name: "pm_account", label: "PM", type: "person", filter: (p: any) => p.office_role !== "admin" && p.kind !== "派遣" },
   { name: "drive_folder_url", label: "專案資料夾網址", type: "url", full: true },
 ];
 const FINANCE_FIELDS: Field[] = [

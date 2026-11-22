@@ -159,4 +159,13 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(call('hazel', 'task.addFromTemplates', { project_id: project.id, template_ids: ids }).length, 0);
     assert.ok(added.every(t => t.owner_account === 'hazel' && t.note));
   });
+  test('[專案] PM 不能是管理者：管理者建專案時 PM 空白；指派管理者當 PM 擋下；同仁建的預設自己', ({ call }) => {
+    call('boss', 'people.sync');
+    const a = call('boss', 'project.create', { record: { name: '管理者建的' } }).project;
+    assert.strictEqual(a.pm_account, null);
+    assert.throws(() => call('hazel', 'project.create', { record: { name: '指派管理者', pm_account: 'boss' } }), /管理者帳號不能當 PM/);
+    const h = call('hazel', 'project.create', { record: { name: '同仁建的' } }).project;
+    assert.strictEqual(h.pm_account, 'hazel');
+    assert.throws(() => call('hazel', 'project.update', { id: h.id, expectedUpdatedAt: h.updated_at, patch: { pm_account: 'boss' } }), /管理者帳號不能當 PM/);
+  });
 };

@@ -72,7 +72,7 @@ const TenderService = {
       const result = ProjectService.create(Object.assign({
         name: tender.title,
         client_name: tender.agency,
-        pm_account: tender.owner_account,
+        pm_account: (PeopleService.byAccount(tender.owner_account) || {}).office_role === ROLES.ADMIN ? null : tender.owner_account,
         tender_id: tender.id,
         contract_amount: tender.award_amount || tender.bid_amount || null,
       }, input), ctx, { applyTemplate: true });

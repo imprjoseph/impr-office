@@ -71,7 +71,9 @@ const ProjectService = {
    * 呼叫端可能已持有 lock（標案轉專案），withScriptLock_ 可重入。
    */
   create(data, ctx, options) {
-    const record = Object.assign({ stage: '規劃中', pm_account: ctx.account }, data);
+    // 管理者帳號不當 PM：管理者建專案時 PM 先空白，由同仁指派
+    const record = Object.assign({ stage: '規劃中', pm_account: ctx.role === ROLES.ADMIN ? null : ctx.account }, data);
+    assertPmNotAdmin_(record.pm_account);
     if ('project_type' in record) record.project_type = normalizeProjectType_(record.project_type);
     if (record.start_date && record.end_date) assertDateRange_(record.start_date, record.end_date);
     return withScriptLock_(() => {
@@ -93,6 +95,7 @@ const ProjectService = {
       const repo = repo_('projects');
       const snapshot = loadCurrentForWrite_(repo, id, expected);
       if ('project_type' in patch) patch = Object.assign({}, patch, { project_type: normalizeProjectType_(patch.project_type) });
+      if ('pm_account' in patch) assertPmNotAdmin_(patch.pm_account);
       const finance = PROJECT_FINANCE_FIELDS_.filter(f => f in patch);
       if (finance.length && !this.canSeeFinance(ctx, snapshot.record)) {
         throw new AppError(ERROR_CODES.FORBIDDEN, '只有專案 PM 或財務角色可以修改：' + finance.join('、'));
@@ -283,6 +286,13 @@ function taskStatsByProject_(tasks, today) {
  * 專案燈號，規則同追蹤表的公式：有逾期或卡關是紅燈；
  * 活動 7 天內完成率不到九成，或有待確認的工作是黃燈；其餘綠燈。已結束的專案不給燈號。
  */
+/** PM 不能是管理者（admin 角色）帳號。 */
+function assertPmNotAdmin_(account) {
+  if (!account) return;
+  const p = PeopleService.byAccount(account);
+  if (p && p.office_role === ROLES.ADMIN) throw new AppError(ERROR_CODES.VALIDATION, '管理者帳號不能當 PM，請指派負責同仁');
+}
+
 /** 專案適用的範本：通用＋該類型；沒填類型的當成「其他」，寧可多不可漏。 */
 function templatesFor_(project) {
   const type = project.project_type || '其他';

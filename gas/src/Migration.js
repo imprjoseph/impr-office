@@ -99,7 +99,8 @@ class MigrationContext_ {
     this.unresolved = {};
     this.byEmail = {};
     this.byName = {};
-    people.forEach(p => {
+    // 管理者帳號和個人帳號可能用同一個 email：先放管理者、再放其他人，email 對應時以個人帳號為準
+    people.slice().sort((x, y) => (x.office_role === 'admin' ? 0 : 1) - (y.office_role === 'admin' ? 0 : 1)).forEach(p => {
       if (p.email) this.byEmail[p.email.toLowerCase()] = p.account;
       this.byName[normName_(p.account)] = p.account;
       this.byName[normName_(p.name)] = p.account;
