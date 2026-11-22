@@ -90,6 +90,42 @@ const ProjectService = {
     });
   },
 
+  /**
+   * 刪除專案（邏輯刪除，資料列還在、可由管理者在試算表復原）。只有管理者、主管或該專案 PM 能刪。
+   * 連帶刪除工作、會議、預算科目、增減項，取消供應商檔期。已送出的報帳、派遣排班、借用中的資材
+   * 牽涉付款與人力成本，有這些就擋下，請先處理。
+   */
+  remove(id, expected, ctx) {
+    return withScriptLock_(() => {
+      const repo = repo_('projects');
+      const snapshot = loadCurrentForWrite_(repo, id, expected);
+      const p = snapshot.record;
+      if (!hasRole_(ctx, [ROLES.ADMIN, ROLES.MANAGER]) && p.pm_account !== ctx.account) {
+        throw new AppError(ERROR_CODES.FORBIDDEN, '只有管理者、主管或這個專案的 PM 可以刪除專案');
+      }
+      const blockers = [];
+      const expenses = repo_('expense_claims').findWhere(e => e.project_id === id && ['draft', 'rejected'].indexOf(e.status) === -1);
+      if (expenses.length) blockers.push(expenses.length + ' 筆已送出的報帳');
+      const dispatch = repo_('dispatch_assignments').findWhere(a => a.project_id === id && a.status === ASSIGNMENT_STATUS.ACTIVE);
+      if (dispatch.length) blockers.push(dispatch.length + ' 筆派遣排班（請先取消排班）');
+      const loans = repo_('loans').findWhere(l => l.project_id === id && l.status === LOAN_STATUS.OUT);
+      if (loans.length) blockers.push(loans.length + ' 筆借用中的資材（請先歸還）');
+      if (blockers.length) throw new AppError(ERROR_CODES.VALIDATION, '「' + p.name + '」還有 ' + blockers.join('、') + '，不能刪除；不做了可以改成「暫停」');
+      const counts = {};
+      ['project_tasks', 'meetings', 'budget_lines', 'project_changes'].forEach(table => {
+        const ids = repo_(table).findWhere(r => r.project_id === id).map(r => r.id);
+        repo_(table).markDeletedMany(ids, ctx.account);
+        counts[table] = ids.length;
+      });
+      const bookings = {};
+      repo_('supplier_bookings').findWhere(b => b.project_id === id && b.status !== BOOKING_STATUS.CANCELLED).forEach(b => { bookings[b.id] = { status: BOOKING_STATUS.CANCELLED }; });
+      repo_('supplier_bookings').updateMany(bookings, ctx.account);
+      repo.markDeleted(snapshot, ctx.account);
+      audit_(ctx, 'project.delete', 'projects', id, { code: p.code, name: p.name, tasks: counts.project_tasks, bookings: Object.keys(bookings).length });
+      return { id, name: p.name, tasks: counts.project_tasks, meetings: counts.meetings, budget_lines: counts.budget_lines, bookings: Object.keys(bookings).length };
+    });
+  },
+
   update(id, expected, patch, ctx) {
     return withScriptLock_(() => {
       const repo = repo_('projects');
@@ -349,6 +385,8 @@ function projectRoutes_() {
     } },
     'project.setStage': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       ProjectService.setStage(requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt'), requireString_(p, 'stage'), ctx) },
+    'project.delete': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      ProjectService.remove(requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt'), ctx) },
     'project.close': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       ProjectService.close(requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt'),
         requireArray_(p, 'ratings').map(r => pickAllowed_(r, ['supplier_id', 'score', 'comment'], '評分')), p.notes, ctx) },

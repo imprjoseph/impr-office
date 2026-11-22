@@ -126,10 +126,21 @@ class SheetRepository {
    * patchesById = { id: patch }
    */
   updateMany(patchesById, actor) {
+    Object.keys(patchesById).forEach(id => this.rejectSystemOrUnknownFields_(patchesById[id]));
+    return this.writeMany_(patchesById, actor);
+  }
+
+  /** 一次邏輯刪除多筆（刪專案時連帶刪工作、會議、預算科目）；讀一次、寫一次。 */
+  markDeletedMany(ids, actor) {
+    const patches = {};
+    ids.forEach(id => { patches[id] = { is_deleted: true }; });
+    return this.writeMany_(patches, actor);
+  }
+
+  writeMany_(patchesById, actor) {
     this.assertWritable_(actor);
     const ids = Object.keys(patchesById);
     if (!ids.length) return [];
-    ids.forEach(id => this.rejectSystemOrUnknownFields_(patchesById[id]));
 
     const sheet = this.sheet_();
     const values = sheet.getDataRange().getValues();

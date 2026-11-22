@@ -168,4 +168,32 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(h.pm_account, 'hazel');
     assert.throws(() => call('hazel', 'project.update', { id: h.id, expectedUpdatedAt: h.updated_at, patch: { pm_account: 'boss' } }), /管理者帳號不能當 PM/);
   });
+  test('[專案] 刪除：管理者、主管或 PM 才能刪；連帶刪工作、預算、取消檔期；有已送出報帳或派遣排班擋下', ({ call, app }) => {
+    call('boss', 'people.sync');
+    call('boss', 'template.create', { record: { category: '合約行政', title: '確認合約', offset_days: -60 } });
+    const { project, tasks } = call('hazel', 'project.create', { record: { name: '要刪的案子', start_date: '2027-05-01' }, applyTemplate: true });
+    assert.strictEqual(tasks.length, 1);
+    call('hazel', 'budget.addLine', { project_id: project.id, record: { category: '場地', item: '場租', quote_amount: 1000 } });
+    const sup = call('hazel', 'supplier.create', { record: { name: '音響行', category: '音響' } });
+    call('hazel', 'supplier.book', { supplier_id: sup.id, project_id: project.id, start_date: '2027-05-01', end_date: '2027-05-01' });
+    let cur = call('hazel', 'project.get', { id: project.id }).project;
+    assert.throws(() => call('amy', 'project.delete', { id: project.id, expectedUpdatedAt: cur.updated_at }), /PM 可以刪除/);
+    // 有已送出報帳就擋下
+    const e = call('amy', 'expense.create', { record: { project_id: project.id, category: '雜支', description: '文具', amount: 100 } });
+    call('amy', 'expense.submit', { id: e.id, expectedUpdatedAt: e.updated_at });
+    cur = call('hazel', 'project.get', { id: project.id }).project;
+    assert.throws(() => call('hazel', 'project.delete', { id: project.id, expectedUpdatedAt: cur.updated_at }), /已送出的報帳/);
+    // 其他案子：沒有阻擋的就刪得掉
+    const other = call('hazel', 'project.create', { record: { name: '另一案', start_date: '2027-06-01' }, applyTemplate: true }).project;
+    call('hazel', 'supplier.book', { supplier_id: sup.id, project_id: other.id, start_date: '2027-06-01', end_date: '2027-06-01' });
+    call('hazel', 'budget.addLine', { project_id: other.id, record: { category: '場地', item: '場租', quote_amount: 500 } });
+    cur = call('hazel', 'project.get', { id: other.id }).project;
+    const r = call('mgr', 'project.delete', { id: other.id, expectedUpdatedAt: cur.updated_at });
+    assert.deepStrictEqual([r.tasks, r.budget_lines, r.bookings], [1, 1, 1]);
+    assert.ok(!call('hazel', 'project.list').some(p => p.id === other.id));
+    assert.ok(!app.repo_('project_tasks').findAll().some(t => t.project_id === other.id));
+    assert.ok(app.repo_('project_tasks').findAll({ includeDeleted: true }).some(t => t.project_id === other.id));
+    assert.ok(app.repo_('supplier_bookings').findAll().filter(b => b.project_id === other.id).every(b => b.status === 'cancelled'));
+    assert.ok(app.repo_('audit_log').findAll().some(a => a.action === 'project.delete' && a.entity_id === other.id));
+  });
 };

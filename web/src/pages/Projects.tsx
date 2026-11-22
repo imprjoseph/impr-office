@@ -91,6 +91,14 @@ export function ProjectDetail({ id }: { id: string }) {
     const r = await run(() => call("project.update", { id: p.id, expectedUpdatedAt: p.updated_at, patch }), "已儲存");
     if (r) { setEditing(false); reload(); lk.refresh(["projects"]); }
   };
+  const canDelete = lk.can("admin", "manager") || p.pm_account === lk.me.account;
+  const removeProject = async () => {
+    const typed = prompt("刪除後，這個專案的工作、會議、預算科目都會一起刪除，供應商檔期會取消。\n確定要刪除請輸入專案名稱：「" + p.name + "」");
+    if (typed === null) return;
+    if (typed.trim() !== p.name.trim()) { alert("名稱不符，沒有刪除。"); return; }
+    const r = await run(() => call<any>("project.delete", { id: p.id, expectedUpdatedAt: p.updated_at }), "已刪除專案「" + p.name + "」");
+    if (r) { lk.refresh(["projects"]); location.hash = "#/projects"; }
+  };
   const setStage = async (stage: string) => {
     const r = await run(() => call("project.setStage", { id: p.id, expectedUpdatedAt: p.updated_at, stage }), "已改成「" + stage + "」");
     if (r) reload();
@@ -121,7 +129,8 @@ export function ProjectDetail({ id }: { id: string }) {
       {tab === "close" && <Close project={p} bookings={data.bookings} reload={reload} />}
       {editing && (
         <Modal title="編輯專案" onClose={() => setEditing(false)}>
-          <RecordForm fields={PROJECT_FIELDS.concat(data.canSeeFinance ? FINANCE_FIELDS : [])} initial={p} onSubmit={saveProject} onCancel={() => setEditing(false)} busy={busy} />
+          <RecordForm fields={PROJECT_FIELDS.concat(data.canSeeFinance ? FINANCE_FIELDS : [])} initial={p} onSubmit={saveProject} onCancel={() => setEditing(false)} busy={busy}
+            extra={canDelete && <button type="button" className="btn danger-link" disabled={busy} onClick={removeProject}>刪除這個專案</button>} />
         </Modal>
       )}
     </Page>
