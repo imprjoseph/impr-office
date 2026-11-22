@@ -312,7 +312,7 @@ function migrateResource_(m) {
   const step = '資材';
   m.insert(step, 'inventory', m.rows(ss, 'inventory').filter(r => cellText_(r.name)).map(r => ({
     // 舊物資系統都是整批資產；要逐台管理的（筆電、攝影機…）搬完在資材頁按「轉換管理方式」，系統會依數量建立單台資料。
-    name: cellText_(r.name), kind: INVENTORY_KIND.ASSET, track_mode: TRACK_MODE.BATCH, category: cellText_(r.category),
+    name: cellText_(r.name), kind: INVENTORY_KIND.ASSET, track_mode: TRACK_MODE.BATCH, category: mapInventoryCategory_(r.category),
     quantity: cellNum_(r.quantity), location: cellText_(r.location), manager_account: m.person(r.manager, step), note: cellText_(r.note),
   })), r => normName_(r.name));
   m.insert('SOP', 'sops', m.rows(ss, 'sops').filter(r => cellText_(r.title)).map(r => ({

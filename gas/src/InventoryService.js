@@ -16,9 +16,23 @@ const UNIT_STATUS = { AVAILABLE: '可用', ON_LOAN: '借出', REPAIR: '維修', 
 const LOAN_STATUS = { OUT: '借出中', RETURNED: '已歸還' };
 const STOCK_MOVE = { IN: '入庫', OUT: '領用', ADJUST: '盤點調整' };
 
-const ASSET_CATEGORIES = ['電腦與周邊設備', '攝影與錄影設備', '錄音與音響設備', '簡報與投影設備', '影音轉接與訊號設備',
-  '網路與通訊設備', '電力與照明設備', '展示與輸出器材', '測量與場勘工具', '報到與識別設備', '現場執行與管控設備', '其他設備'];
-const CONSUMABLE_CATEGORIES = ['文具', '印刷與輸出耗材', '電池與電料', '識別證與名牌耗材', '包材與膠帶', '清潔與衛生用品', '活動小物', '其他耗材'];
+// 中項分類：放在系統設定（inventory_categories），管理者可以自己增修；資產、耗材共用。
+function inventoryCategories_() {
+  return String(setting_('inventory_categories') || '').split(/[,、，\n]/).map(x => x.trim()).filter(Boolean);
+}
+
+// 舊物資系統的分類 → 新的中項
+const OLD_INVENTORY_CATEGORY_MAP_ = {
+  '電腦與周邊設備': '3C', '攝影與錄影設備': '攝影器材', '錄音與音響設備': '錄音設備', '簡報與投影設備': '投影簡報',
+  '影音轉接與訊號設備': '影音轉接', '網路與通訊設備': '通訊設備', '電力與照明設備': '電力照明', '展示與輸出器材': '展架',
+  '測量與場勘工具': '工具', '報到與識別設備': '報到設備', '現場執行與管控設備': '現場用品',
+};
+
+function mapInventoryCategory_(v) {
+  const s = String(v || '').trim();
+  if (!s) return null;
+  return OLD_INVENTORY_CATEGORY_MAP_[s] || s;
+}
 
 const INVENTORY_FIELDS_ = ['name', 'kind', 'track_mode', 'category', 'spec', 'quantity', 'unit', 'safety_stock', 'location',
   'manager_account', 'photo_url', 'note'];
@@ -30,7 +44,11 @@ function itemMode_(item) { return itemKind_(item) === INVENTORY_KIND.ASSET && it
 
 function normalizeItem_(record, current) {
   const merged = Object.assign({}, current || {}, record);
-  if (!current && !String(merged.category || '').trim()) throw new AppError(ERROR_CODES.VALIDATION, '請選擇資材的分類');
+  if (!current && !String(merged.category || '').trim()) throw new AppError(ERROR_CODES.VALIDATION, '請選擇資材的中項分類');
+  // 新增或改分類時要在清單內（清單在系統設定）；舊資料原本的分類不受影響
+  if ('category' in record && record.category && (!current || record.category !== current.category) && inventoryCategories_().indexOf(record.category) === -1) {
+    throw new AppError(ERROR_CODES.VALIDATION, '中項分類「' + record.category + '」不在清單內，請管理者到系統設定的 inventory_categories 加上');
+  }
   const kind = merged.kind || INVENTORY_KIND.ASSET;
   if ([INVENTORY_KIND.ASSET, INVENTORY_KIND.CONSUMABLE].indexOf(kind) === -1) throw new AppError(ERROR_CODES.VALIDATION, '大項只能是資產或耗材');
   const mode = kind === INVENTORY_KIND.CONSUMABLE ? TRACK_MODE.BATCH : (merged.track_mode || TRACK_MODE.BATCH);
@@ -63,12 +81,13 @@ const InventoryService = {
     loans.forEach(l => { out[l.inventory_id] = (out[l.inventory_id] || 0) + (Number(l.quantity) || 0); });
     return sortBy_(repo_('inventory').findAll(), 'name').map(i => {
       const kind = itemKind_(i), mode = itemMode_(i);
-      let total, available, onLoan;
+      let total, available, onLoan, repair = 0;
       if (mode === TRACK_MODE.UNIT) {
         const mine = units.filter(u => u.inventory_id === i.id && u.status !== UNIT_STATUS.RETIRED);
         total = mine.length;
         available = mine.filter(u => u.status === UNIT_STATUS.AVAILABLE).length;
         onLoan = mine.filter(u => u.status === UNIT_STATUS.ON_LOAN).length;
+        repair = mine.filter(u => u.status === UNIT_STATUS.REPAIR).length;
       } else if (kind === INVENTORY_KIND.CONSUMABLE) {
         total = Number(i.quantity) || 0;
         available = total;
@@ -80,13 +99,13 @@ const InventoryService = {
       }
       const low = kind === INVENTORY_KIND.CONSUMABLE && i.safety_stock !== null && i.safety_stock !== undefined && i.safety_stock !== '' &&
         total <= Number(i.safety_stock);
-      return Object.assign({}, i, { kind, track_mode: mode, total, available, on_loan: onLoan, low_stock: low });
+      return Object.assign({}, i, { kind, track_mode: mode, total, available, on_loan: onLoan, repair, low_stock: low });
     });
   },
 
   options() {
     return { kinds: [INVENTORY_KIND.ASSET, INVENTORY_KIND.CONSUMABLE], modes: [TRACK_MODE.UNIT, TRACK_MODE.BATCH],
-      assetCategories: ASSET_CATEGORIES, consumableCategories: CONSUMABLE_CATEGORIES,
+      categories: inventoryCategories_(),
       unitStatuses: [UNIT_STATUS.AVAILABLE, UNIT_STATUS.REPAIR, UNIT_STATUS.RETIRED] };
   },
 
@@ -122,6 +141,9 @@ const InventoryService = {
         if (Number(patch.quantity) < onLoan) throw new AppError(ERROR_CODES.VALIDATION, '總數不能少於借出中的 ' + onLoan);
       }
       if ('name' in patch) assertUniqueName_('inventory', 'name', { id, name: patch.name }, '資材');
+      if ('category' in patch && patch.category && patch.category !== item.category && inventoryCategories_().indexOf(patch.category) === -1) {
+        throw new AppError(ERROR_CODES.VALIDATION, '中項分類「' + patch.category + '」不在清單內，請管理者到系統設定的 inventory_categories 加上');
+      }
       const clean = Object.assign({}, patch);
       delete clean.kind; delete clean.track_mode;
       return repo.writeSnapshot(snapshot, clean, ctx.account);

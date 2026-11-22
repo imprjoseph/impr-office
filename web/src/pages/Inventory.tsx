@@ -34,7 +34,7 @@ export default function Inventory() {
       actions={<button className="btn primary" onClick={() => setEditing(null)}>＋ 新增資材</button>}>
       <Tabs tabs={[["master", "資材總檔"], ["loans", "借用檔" + (out.length ? "（借出中 " + out.length + (overdue ? "・逾期 " + overdue : "") + "）" : "")]]} value={view} onChange={setView} />
       {view === "master"
-        ? <Master items={items} onEdit={setEditing} onBorrow={setBorrowing} onUnits={setUnitsOf} onStock={(item, kind) => setStockOf({ item, kind })} />
+        ? <Master items={items} categories={opts.data?.categories || []} onEdit={setEditing} onBorrow={setBorrowing} onUnits={setUnitsOf} onStock={(item, kind) => setStockOf({ item, kind })} />
         : <Loans loans={loans} busy={busy} onReturn={l => l.unit_ids ? setReturning(l) : giveBack(l, [])} />}
       {editing !== undefined && opts.data && <ItemForm item={editing} opts={opts.data} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }} />}
       {borrowing && <BorrowForm item={borrowing} unitIds={null} onClose={() => setBorrowing(null)} onDone={() => { setBorrowing(null); reload(); }} />}
@@ -45,43 +45,73 @@ export default function Inventory() {
   );
 }
 
-/** 資材總檔：依分類分組，每項列出類型、數量、保管人、存放位置。可依大項、分類、保管人篩選。 */
-function Master({ items, onEdit, onBorrow, onUnits, onStock }: { items: any; onEdit: (i: any) => void; onBorrow: (i: any) => void; onUnits: (i: any) => void; onStock: (i: any, kind: string) => void }) {
+// 狀態篩選：和大項、中項分開，是資材「現在的狀況」
+const STATUS_FILTERS: [string, string, (i: any) => boolean][] = [
+  ["", "全部狀態", () => true],
+  ["available", "可借用", i => i.kind !== "耗材" && i.available > 0],
+  ["onloan", "借出中", i => i.on_loan > 0],
+  ["none", "已全部借出", i => i.kind !== "耗材" && i.total > 0 && i.available <= 0],
+  ["repair", "維修中", i => i.repair > 0],
+  ["low", "庫存不足", i => !!i.low_stock],
+  ["nokeeper", "未指定保管人", i => !i.manager_account],
+];
+
+/** 資材總檔：大項（資產／耗材）→ 中項（文具、3C、展架…）分組；狀態、保管人另外篩選。 */
+function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { items: any; categories: string[]; onEdit: (i: any) => void; onBorrow: (i: any) => void; onUnits: (i: any) => void; onStock: (i: any, kind: string) => void }) {
   const lk = useLookups();
   const [kind, setKind] = useState("全部");
   const [category, setCategory] = useState("");
+  const [status, setStatus] = useState("");
   const [keeper, setKeeper] = useState("");
   const [q, setQ] = useState("");
   const all: any[] = items.data || [];
-  const cats = Array.from(new Set(all.filter(i => kind === "全部" || i.kind === kind).map(i => i.category || "未分類"))).sort();
+  const cats = Array.from(new Set(categories.concat(all.filter(i => kind === "全部" || i.kind === kind).map(i => i.category || "未分類"))))
+    .filter(c => all.some(i => (kind === "全部" || i.kind === kind) && (i.category || "未分類") === c));
   const keepers = Array.from(new Set(all.map(i => i.manager_account).filter(Boolean)));
-  const rows = all.filter(i => (kind === "全部" || (kind === "庫存不足" ? i.low_stock : i.kind === kind)) && (!category || (i.category || "未分類") === category) &&
-    (!keeper || (keeper === "-" ? !i.manager_account : i.manager_account === keeper)) &&
+  const statusTest = (STATUS_FILTERS.find(f => f[0] === status) || STATUS_FILTERS[0])[2];
+  const count = (key: string) => all.filter((STATUS_FILTERS.find(f => f[0] === key) as any)[2]).length;
+  const rows = all.filter(i => (kind === "全部" || i.kind === kind) && (!category || (i.category || "未分類") === category) && statusTest(i) &&
+    (!keeper || i.manager_account === keeper) &&
     (!q || [i.name, i.category, i.spec, i.location].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
+  // 分組：大項 › 中項，中項依系統設定的清單順序
+  const order = (c: string) => { const k = categories.indexOf(c); return k < 0 ? 999 : k; };
   const groups: Record<string, any[]> = {};
-  rows.forEach(i => { (groups[i.category || "未分類"] = groups[i.category || "未分類"] || []).push(i); });
-  const lowCount = all.filter(i => i.low_stock).length;
-  const noKeeper = all.filter(i => !i.manager_account).length;
+  rows.forEach(i => { const g = i.kind + "|" + (i.category || "未分類"); (groups[g] = groups[g] || []).push(i); });
+  const keys = Object.keys(groups).sort((a, b) => {
+    const [ka, ca] = a.split("|"), [kb, cb] = b.split("|");
+    return ka === kb ? order(ca) - order(cb) || ca.localeCompare(cb) : ka === "資產" ? -1 : 1;
+  });
   return <>
     <div className="toolbar">
-      <Tabs tabs={[["全部", "全部"], ["資產", "資產"], ["耗材", "耗材"], ["庫存不足", "庫存不足" + (lowCount ? "（" + lowCount + "）" : "")]]} value={kind} onChange={v => { setKind(v); setCategory(""); }} />
-      <select value={category} onChange={e => setCategory(e.target.value)} aria-label="分類"><option value="">全部分類</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
+      <Tabs tabs={[["全部", "全部"], ["資產", "資產"], ["耗材", "耗材"]]} value={kind} onChange={v => { setKind(v); setCategory(""); }} />
+      <select value={category} onChange={e => setCategory(e.target.value)} aria-label="中項"><option value="">全部中項</option>{cats.map(c => <option key={c}>{c}</option>)}</select>
+      <select value={status} onChange={e => setStatus(e.target.value)} aria-label="狀態">
+        {STATUS_FILTERS.map(([k, label]) => <option key={k} value={k}>{label}{k ? "（" + count(k) + "）" : ""}</option>)}
+      </select>
       <select value={keeper} onChange={e => setKeeper(e.target.value)} aria-label="保管人"><option value="">全部保管人</option>
-        {keepers.map(k => <option key={k} value={k}>{lk.nameOf(k)}</option>)}<option value="-">（未指定保管人 {noKeeper}）</option></select>
+        {keepers.map(k => <option key={k} value={k}>{lk.nameOf(k)}</option>)}</select>
       <input type="search" placeholder="搜尋名稱、規格、位置" value={q} onChange={e => setQ(e.target.value)} />
       <span className="muted small">{rows.length} 項</span>
     </div>
     <Loading error={items.error} loading={items.loading && !items.data} />
     {items.data && !rows.length && <p className="empty">沒有符合的資材。</p>}
-    {Object.keys(groups).sort().map(cat => (
-      <section key={cat} className="inv-group">
-        <h3>{cat} <span className="muted small">{groups[cat].length} 項</span></h3>
-        <Table rows={groups[cat]} onRow={onEdit} columns={[
+    {keys.map(g => {
+      const [k, cat] = g.split("|");
+      return (
+      <section key={g} className="inv-group">
+        <h3><span className="muted">{k} ›</span> {cat} <span className="muted small">{groups[g].length} 項</span></h3>
+        <Table rows={groups[g]} onRow={onEdit} columns={[
           { key: "name", label: "名稱", render: i => <><b>{i.name}</b><small className="muted block">{[i.spec, i.location].filter(Boolean).join("・")}</small></> },
-          { key: "kind", label: "類型", hideSm: true, render: i => <Badge text={kindLabel(i)} tone={i.kind === "耗材" ? "" : i.track_mode === "逐台" ? "green" : ""} /> },
+          { key: "mode", label: "管理方式", hideSm: true, render: i => i.kind === "耗材" ? "庫存" : i.track_mode },
           { key: "q", label: "數量", num: true, render: i => i.kind === "耗材"
-            ? <span className={i.low_stock ? "red" : ""}>庫存 {i.total} {i.unit || ""}{i.low_stock && <small className="block">低於安全存量 {i.safety_stock}</small>}</span>
+            ? <span className={i.low_stock ? "red" : ""}>庫存 {i.total} {i.unit || ""}</span>
             : <span className={i.available <= 0 ? "red" : ""}>可用 {i.available}／{i.total} {i.unit || ""}</span> },
+          { key: "st", label: "狀態", render: i => <span className="quote-list">
+            {i.low_stock && <Badge text="庫存不足" tone="red" />}
+            {i.on_loan > 0 && <Badge text={"借出中 " + i.on_loan} tone="yellow" />}
+            {i.repair > 0 && <Badge text={"維修中 " + i.repair} tone="red" />}
+            {!i.low_stock && !i.on_loan && !i.repair && <Badge text={i.kind === "耗材" ? "正常" : "可借用"} tone="green" />}
+          </span> },
           { key: "keeper", label: "保管人", render: i => i.manager_account ? lk.nameOf(i.manager_account) : <span className="muted">未指定</span> },
           { key: "x", label: "", render: i => <span className="row-actions" onClick={e => e.stopPropagation()}>
             {i.kind === "耗材" ? <>
@@ -93,7 +123,8 @@ function Master({ items, onEdit, onBorrow, onUnits, onStock }: { items: any; onE
           </span> },
         ]} />
       </section>
-    ))}
+      );
+    })}
   </>;
 }
 
@@ -136,10 +167,10 @@ function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: an
   const fields: Field[] = [
     { name: "name", label: "名稱", required: true, full: true },
     ...(isNew ? [
-      { name: "kind", label: "大項", type: "select", options: opts.kinds, required: true, hint: "資產用完要歸還；耗材用掉就沒了" } as Field,
+      { name: "kind", label: "大項", type: "select", options: opts.kinds, required: true, hint: "資產：用完要歸還；耗材：用掉就沒了" } as Field,
       ...(!consumable ? [{ name: "track_mode", label: "管理方式", type: "select", options: opts.modes, required: true, hint: "逐台：每台有財產編號（筆電、攝影機）；整批：只記數量（延長線、對講機）" } as Field] : []),
     ] : []),
-    { name: "category", label: "分類", type: "select", options: consumable ? opts.consumableCategories : opts.assetCategories, required: true },
+    { name: "category", label: "中項（文具、3C、展架…）", type: "select", options: Array.from(new Set<string>((opts.categories as string[] || []).concat(item?.category ? [String(item.category)] : []))), required: true, hint: "清單由管理者在系統設定的 inventory_categories 增修" },
     { name: "spec", label: "規格／型號" },
     { name: "unit", label: "單位（台、支、個…）" },
     ...(consumable

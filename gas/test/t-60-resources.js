@@ -1,9 +1,12 @@
 /** 資材、SOP、帳密、工時。 */
 module.exports = (test, { assert }) => {
-  test('[資材] 整批資產：借用不能超過可借數量；歸還後釋出；逾期標示；總數不能少於借出數', ({ call }) => {
-    const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', category: '錄音與音響設備', quantity: 4, unit: '支' } });
+  test('[資材] 整批資產：借用不能超過可借數量；歸還後釋出；逾期標示；總數不能少於借出數；中項要在清單內', ({ call, app }) => {
+    const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', category: '錄音設備', quantity: 4, unit: '支' } });
     assert.strictEqual(item.kind, '資產');
     assert.throws(() => call('hazel', 'inventory.create', { record: { name: '沒分類的', quantity: 1 } }), /分類/);
+    assert.throws(() => call('hazel', 'inventory.create', { record: { name: '亂分類', category: '外星設備', quantity: 1 } }), /不在清單內/);
+    assert.ok(call('hazel', 'inventory.options').categories.includes('展架'));
+    assert.strictEqual(app.mapInventoryCategory_('展示與輸出器材'), '展架');
     assert.strictEqual(item.track_mode, '整批');
     const l = call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 3 } });
     assert.throws(() => call('hazel', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2 } }), e => /只剩 1 支/.test(e.message));
@@ -15,7 +18,7 @@ module.exports = (test, { assert }) => {
   });
 
   test('[資材] 逐台資產：轉換時依數量建單台；借用要指定哪幾台；借出狀態只能由借還改；損壞歸還改維修；報廢不算總數', ({ call, app }) => {
-    let item = call('hazel', 'inventory.create', { record: { name: '華碩筆電', quantity: 3, unit: '台', category: '電腦與周邊設備' } });
+    let item = call('hazel', 'inventory.create', { record: { name: '華碩筆電', quantity: 3, unit: '台', category: '3C' } });
     item = call('hazel', 'inventory.setMode', { id: item.id, expectedUpdatedAt: item.updated_at, kind: '資產', track_mode: '逐台' });
     let units = call('hazel', 'inventory.units', { inventory_id: item.id });
     assert.deepStrictEqual(units.map(u => u.asset_tag), ['A-0001', 'A-0002', 'A-0003']);
@@ -37,6 +40,7 @@ module.exports = (test, { assert }) => {
     call('amy', 'loan.return', { id: loan.id, expectedUpdatedAt: loan.updated_at, damaged_unit_ids: [units[1].id] });
     units = call('hazel', 'inventory.units', { inventory_id: item.id });
     assert.deepStrictEqual(units.map(u => u.status), ['可用', '維修', '可用', '可用']);
+    assert.strictEqual(call('hazel', 'inventory.withStock').find(i => i.id === item.id).repair, 1);
     call('hazel', 'inventory.updateUnit', { id: units[3].id, expectedUpdatedAt: units[3].updated_at, patch: { status: '報廢' } });
     const after = call('hazel', 'inventory.withStock').find(i => i.id === item.id);
     assert.deepStrictEqual([after.total, after.available], [3, 2]);
@@ -46,7 +50,7 @@ module.exports = (test, { assert }) => {
   });
 
   test('[資材] 耗材：固定整批、不能借；入庫加、領用扣（不能扣到負）、盤點調差額；低於安全存量標示；庫存不能直接改', ({ call }) => {
-    const item = call('hazel', 'inventory.create', { record: { name: '識別證套', kind: '耗材', category: '識別證與名牌耗材', track_mode: '逐台', quantity: 100, unit: '個', safety_stock: 30 } });
+    const item = call('hazel', 'inventory.create', { record: { name: '識別證套', kind: '耗材', category: '報到設備', track_mode: '逐台', quantity: 100, unit: '個', safety_stock: 30 } });
     assert.strictEqual(item.track_mode, '整批');
     assert.throws(() => call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 1 } }), /領用/);
     call('amy', 'stock.move', { record: { inventory_id: item.id, kind: '領用', quantity: 80, project_id: null } });
