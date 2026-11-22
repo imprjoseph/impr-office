@@ -9,7 +9,10 @@ export default function PublicTenders() {
   const [group, setGroup] = useState("");
   const [minScore, setMinScore] = useState(0);
   const [includeClosed, setIncludeClosed] = useState(false);
-  const { data, error, loading, reload } = useLoad<any>("publicTender.list", { q: query, group, minScore, includeClosed });
+  // 未截標的一次載入、在瀏覽器裡篩選（換類別、分數立即生效）；含已截標的資料多，搜尋字交給伺服器
+  const { data, error, loading, reload } = useLoad<any>("publicTender.list", { q: includeClosed ? query : "", includeClosed });
+  const shown = (data?.rows || []).filter((t: any) => (!group || String(t.groups || "").includes(group)) && (!minScore || (t.score || 0) >= minScore) &&
+    (!query || includeClosed || [t.title, t.agency, t.keywords, t.tender_no].some(v => String(v || "").toLowerCase().includes(query.toLowerCase()))));
   const { busy, run } = useAction();
   const track = async (t: any) => {
     const r = await run(() => call<any>("publicTender.track", { key: t.key }));
@@ -32,8 +35,8 @@ export default function PublicTenders() {
         <button className="btn">搜尋</button>
       </form>
       <Loading error={error} loading={loading && !data} />
-      {data && <p className="muted small">符合 {data.total} 筆（資料庫共 {data.totalAll} 筆）{data.total > data.rows.length ? "，只列最新 " + data.rows.length + " 筆，請用搜尋縮小範圍" : ""}。</p>}
-      {data && <Table rows={data.rows} empty="沒有符合的公開標案。" columns={[
+      {data && <p className="muted small">符合 {shown.length} 筆（資料庫共 {data.totalAll} 筆）{data.total > data.rows.length ? "；只載入最新 " + data.rows.length + " 筆，請用搜尋縮小範圍" : ""}。</p>}
+      {data && <Table rows={shown} empty="沒有符合的公開標案。" columns={[
         { key: "title", label: "案名", render: t => <>
           {t.url ? <a href={t.url} target="_blank" rel="noreferrer"><b>{t.title}</b></a> : <b>{t.title}</b>}
           <small className="muted block">{t.agency}・{t.tender_no}{t.keywords ? "・" + t.keywords : ""}</small>

@@ -13,17 +13,26 @@ export const shortDate = (d?: string | null) => (d ? d.slice(5).replace("-", "/"
 export const todayIso = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
 
 // ---------- 讀取資料 ----------
+// 同一次開啟網頁內，各列表最後一次載入的結果：回到看過的頁面先顯示上次的資料，背景再更新，不用從空白等起。
+// 只放在記憶體（關掉分頁就清掉），帳密不暫存。
+const loadMemo = new Map<string, unknown>();
+const NO_MEMO = /^credential\./;
+
 export function useLoad<T>(action: string | null, payload?: Record<string, unknown>, deps: unknown[] = []) {
-  const [data, setData] = useState<T | null>(null);
+  const key = JSON.stringify(payload || {});
+  const memoKey = action + "|" + key;
+  const [data, setData] = useState<T | null>(() => (action && loadMemo.has(memoKey) ? loadMemo.get(memoKey) as T : null));
   const [error, setError] = useState<string>("");
   const [loading, setLoading] = useState(false);
-  const key = JSON.stringify(payload || {});
   const reload = useCallback(async () => {
     if (!action) return;
+    if (loadMemo.has(memoKey)) setData(loadMemo.get(memoKey) as T);
     setLoading(true);
     setError("");
     try {
-      setData(await call<T>(action, payload));
+      const d = await call<T>(action, payload);
+      if (!NO_MEMO.test(action)) loadMemo.set(memoKey, d);
+      setData(d);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -34,6 +43,9 @@ export function useLoad<T>(action: string | null, payload?: Record<string, unkno
   useEffect(() => { reload(); }, [reload]);
   return { data, error, loading, reload, setData };
 }
+
+/** 登出或換帳號時清掉暫存，下一個人不會看到上一個人的資料。 */
+export function clearLoadMemo() { loadMemo.clear(); }
 
 // ---------- 登入者與選單資料 ----------
 interface Lookups {
@@ -55,9 +67,11 @@ export function LookupProvider({ me, children }: { me: Me; children: ReactNode }
   const [state, setState] = useState({ people: [] as any[], projects: [] as any[], clients: [] as any[], suppliers: [] as any[] });
   const refresh = useCallback(async (which = ["people", "projects", "clients", "suppliers"]) => {
     if (!internal) return;
-    // 主管與管理者每次開啟系統先從帳號中心同步一次人員（帳號中心新增、停用的人自動反映，不用記得按同步）。
+    // 主管與管理者每次開啟系統，在背景從帳號中心同步一次人員（不擋畫面）；同步完再更新人員名單。
     if (which.includes("people") && ["admin", "manager"].includes(me.role) && !sessionStorage.getItem("impr_people_synced")) {
-      try { await call("people.sync"); sessionStorage.setItem("impr_people_synced", "1"); } catch { /* 同步失敗仍用現有名單 */ }
+      sessionStorage.setItem("impr_people_synced", "1");
+      call("people.sync").then(() => call<any[]>("people.list")).then(people => setState(st => ({ ...st, people })))
+        .catch(() => sessionStorage.removeItem("impr_people_synced"));
     }
     const actions: Record<string, string> = { people: "people.list", projects: "project.list", clients: "client.list", suppliers: "supplier.list" };
     const results = await Promise.all(which.map(w => call<any[]>(actions[w]).catch(() => [])));

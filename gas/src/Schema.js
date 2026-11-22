@@ -77,7 +77,7 @@ const TABLES = {
     'opening_date:date, owner_account, status!, decision_note, bid_bond:num, documents, bid_amount:num, ' +
     'award_amount:num, competitors, result_note, project_id') },
   // code 沿用活動總表的 EVT-年度-流水號，同仁已經習慣用它溝通。
-  projects: { prefix: 'prj', cache: false, columns: cols_(
+  projects: { prefix: 'prj', cache: true, columns: cols_(
     'code!, name!, client_id, client_name, project_type, venue, start_date:date, end_date:date, ' +
     'pm_account, stage!, tender_id, contract_amount:num, margin_threshold:num, margin_alert:bool, ' +
     'quote_total:num, cost_estimate_total:num, cost_actual_total:num, margin_rate:num, ' +

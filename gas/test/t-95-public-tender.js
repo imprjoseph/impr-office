@@ -29,6 +29,21 @@ module.exports = (test, { assert }) => {
     assert.throws(() => env.call('pt1', 'publicTender.list', {}), /權限/);
   });
 
+  test('[公開標案] 讀過一次會暫存，第二次不重讀試算表；連結只讀連結欄', (env) => {
+    const sh = seed(env);
+    let reads = 0;
+    const orig = sh.getDataRange.bind(sh);
+    sh.getDataRange = () => { reads++; return orig(); };
+    env.call('hazel', 'publicTender.list', {});
+    const r2 = env.call('hazel', 'publicTender.list', { q: '社群' });
+    assert.strictEqual(reads, 1);
+    assert.deepStrictEqual(r2.rows.map(t => t.tender_no), ['T-002']);
+    assert.strictEqual(env.call('hazel', 'publicTender.list', {}).rows[0].url, 'https://web.pcc.gov.tw/a');
+    env.call('hazel', 'publicTender.track', { key: 'B|2' });
+    env.call('hazel', 'publicTender.list', {});
+    assert.strictEqual(reads, 2); // 追蹤時用暫存，回寫原表後清掉暫存，下一次才重讀
+  });
+
   test('[公開標案] 追蹤：建立標案、回寫原表狀態與負責人；重按不重複', (env) => {
     const sh = seed(env);
     const a = env.call('hazel', 'publicTender.track', { key: 'A|1' });

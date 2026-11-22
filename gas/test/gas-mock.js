@@ -143,6 +143,15 @@ function createGasGlobals() {
         getUuid: () => crypto.randomUUID(),
         DigestAlgorithm: { SHA_256: 'sha256' },
         Charset: { UTF_8: 'utf8' },
+        // gzip、base64、Blob：用 Node 的 zlib 與 Buffer 模擬（位元組陣列用 signed byte，和 Apps Script 一樣）
+        newBlob: (data, type) => {
+          const buf = Buffer.isBuffer(data) ? data : Array.isArray(data) ? Buffer.from(data.map(b => b & 0xff)) : Buffer.from(String(data), 'utf8');
+          return { buf, getBytes: () => [...buf].map(b => (b > 127 ? b - 256 : b)), getDataAsString: () => buf.toString('utf8') };
+        },
+        gzip: blob => { const z = require('zlib').gzipSync(blob.buf); return { buf: z, getBytes: () => [...z].map(b => (b > 127 ? b - 256 : b)) }; },
+        ungzip: blob => { const u = require('zlib').gunzipSync(blob.buf); return { buf: u, getDataAsString: () => u.toString('utf8') }; },
+        base64Encode: bytes => Buffer.from(bytes.map(b => b & 0xff)).toString('base64'),
+        base64Decode: str => [...Buffer.from(str, 'base64')].map(b => (b > 127 ? b - 256 : b)),
         computeDigest: (alg, text) => [...crypto.createHash('sha256').update(String(text), 'utf8').digest()].map(b => (b > 127 ? b - 256 : b)),
         // 測試一律以 UTC 當腳本時區，「今天」和測試裡用 toISOString 算的日期一致。
         formatDate: (d, tz, pattern) => {
@@ -193,6 +202,8 @@ function createGasGlobals() {
           get: k => { cacheCalls.get++; return cacheStore.has(k) ? cacheStore.get(k) : null; },
           put: (k, v) => { cacheCalls.put++; cacheStore.set(k, v); },
           remove: k => { cacheCalls.remove++; cacheStore.delete(k); },
+          getAll: keys => { cacheCalls.get++; const o = {}; keys.forEach(k => { if (cacheStore.has(k)) o[k] = cacheStore.get(k); }); return o; },
+          putAll: obj => { cacheCalls.put++; Object.keys(obj).forEach(k => cacheStore.set(k, obj[k])); },
         }),
       },
     },

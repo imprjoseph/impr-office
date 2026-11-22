@@ -32,7 +32,7 @@ export function goLogin(): never {
 }
 
 export function logout() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch { /* 無痕模式 */ }
+  try { localStorage.removeItem(TOKEN_KEY); sessionStorage.removeItem("impr_people_synced"); } catch { /* 無痕模式 */ }
   window.dispatchEvent(new Event(LOGIN_EVENT));
 }
 

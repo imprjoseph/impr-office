@@ -7,7 +7,7 @@ import { BarChart3, Briefcase, Calculator, Building2, CalendarClock, ClipboardLi
   Receipt, Settings, Sparkles, Truck, Users, UserRoundCog, X } from "lucide-react";
 import { call, hasValidToken, LOGIN_EVENT, logout, Me } from "./api";
 import { Login, PasswordModal } from "./pages/Login";
-import { LookupProvider, ToastProvider, useLookups } from "./ui";
+import { clearLoadMemo, LookupProvider, ToastProvider, useLookups } from "./ui";
 import Dashboard from "./pages/Dashboard";
 import { ProjectDetail, ProjectList } from "./pages/Projects";
 import Tenders from "./pages/Tenders";
@@ -157,7 +157,7 @@ export default function App() {
   const [error, setError] = useState("");
   // 任何 API 回「登入失效」或按登出，都會送出 LOGIN_EVENT，外框就換成登入畫面。
   useEffect(() => {
-    const show = () => { setMe(null); setError(""); setNeedLogin(true); };
+    const show = () => { clearLoadMemo(); setMe(null); setError(""); setNeedLogin(true); };
     window.addEventListener(LOGIN_EVENT, show);
     return () => window.removeEventListener(LOGIN_EVENT, show);
   }, []);

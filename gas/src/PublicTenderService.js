@@ -28,7 +28,50 @@ function govTenderUrl_(formula, rich) {
   try { return rich && rich.getLinkUrl ? rich.getLinkUrl() : null; } catch (e) { return null; }
 }
 
+/**
+ * 讀政府標案資料庫並暫存 10 分鐘（資料庫一天才更新一次）：整張 2,500 多列每次重讀要好幾秒。
+ * 暫存用 gzip 壓縮後切成 90KB 一塊存在 CacheService（單值上限 100KB）；追蹤標案回寫原表時清掉。
+ */
+const GOV_TENDER_CACHE_SECONDS_ = 600;
+
 function readGovTenders_() {
+  const cache = CacheService.getScriptCache();
+  try {
+    const meta = cache.get(GOV_TENDER_CACHE_KEY_);
+    if (meta) {
+      const n = Number(meta);
+      const keys = [];
+      for (let i = 0; i < n; i++) keys.push(GOV_TENDER_CACHE_KEY_ + ':' + i);
+      const parts = cache.getAll(keys);
+      if (keys.every(k => parts[k])) {
+        const b64 = keys.map(k => parts[k]).join('');
+        const json = Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(b64), 'application/x-gzip')).getDataAsString('UTF-8');
+        return JSON.parse(json);
+      }
+    }
+  } catch (e) {
+    // 暫存壞了就重讀，不影響結果
+  }
+  const rows = readGovTendersFromSheet_();
+  try {
+    const b64 = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(rows), 'application/json')).getBytes());
+    const size = 90000;
+    const put = {};
+    let n = 0;
+    for (let i = 0; i < b64.length; i += size) put[GOV_TENDER_CACHE_KEY_ + ':' + (n++)] = b64.slice(i, i + size);
+    put[GOV_TENDER_CACHE_KEY_] = String(n);
+    if (n <= 80) cache.putAll(put, GOV_TENDER_CACHE_SECONDS_);
+  } catch (e) {
+    // 存不進暫存就下次再讀
+  }
+  return rows;
+}
+
+function clearGovTenderCache_() {
+  try { CacheService.getScriptCache().remove(GOV_TENDER_CACHE_KEY_); } catch (e) { /* 忽略 */ }
+}
+
+function readGovTendersFromSheet_() {
   const sheet = govTenderSheet_();
   const range = sheet.getDataRange();
   const values = range.getValues();
@@ -37,8 +80,13 @@ function readGovTenders_() {
   const col = {};
   Object.keys(GOV_TENDER_HEADERS_).forEach(k => { col[k] = header.indexOf(GOV_TENDER_HEADERS_[k]); });
   if (col.title === -1 || col.key === -1) throw new AppError(ERROR_CODES.VALIDATION, '政府標案資料庫的表頭和預期不同（找不到「主鍵」「案名」）');
-  const formulas = range.getFormulas ? range.getFormulas() : [];
-  const rich = col.link >= 0 && range.getRichTextValues ? range.getRichTextValues() : [];
+  // 只讀「連結」那一欄的公式與超連結（整張表讀格式非常慢）
+  let formulas = [], rich = [];
+  if (col.link >= 0 && values.length > 1) {
+    const linkRange = sheet.getRange(2, col.link + 1, values.length - 1, 1);
+    formulas = linkRange.getFormulas ? linkRange.getFormulas() : [];
+    if (!formulas.some(r => r[0]) && linkRange.getRichTextValues) rich = linkRange.getRichTextValues();
+  }
   return values.slice(1).map((r, i) => {
     const at = k => (col[k] >= 0 ? r[col[k]] : '');
     return {
@@ -54,7 +102,7 @@ function readGovTenders_() {
       groups: cellText_(at('groups')),
       keywords: cellText_(at('keywords')),
       score: cellNum_(at('score')),
-      url: col.link >= 0 ? govTenderUrl_((formulas[i + 1] || [])[col.link], (rich[i + 1] || [])[col.link]) : null,
+      url: col.link >= 0 ? govTenderUrl_((formulas[i] || [])[0], (rich[i] || [])[0]) : null,
       status: cellText_(at('status')),
       owner: cellText_(at('owner')),
       will_bid: cellText_(at('will_bid')),
@@ -94,7 +142,8 @@ const PublicTenderService = {
       groups: Object.keys(groups).sort(),
       sheetUrl: 'https://docs.google.com/spreadsheets/d/' +
         (PropertiesService.getScriptProperties().getProperty('GOV_TENDER_SHEET_ID') || GOV_TENDER_SHEET_DEFAULT_) + '/edit',
-      rows: rows.slice(0, 300).map(t => Object.assign(t, { tracked_id: tracked[t.agency + '|' + t.tender_no] || null })),
+      // 未截標的一次全給（前端自己篩選，換條件不用再等伺服器）；含已截標的只給最新 300 筆
+      rows: rows.slice(0, includeClosed ? 300 : 2000).map(t => Object.assign(t, { tracked_id: tracked[t.agency + '|' + t.tender_no] || null })),
     };
   },
 
@@ -115,6 +164,7 @@ const PublicTenderService = {
       const ownerCol = header.indexOf(GOV_TENDER_HEADERS_.owner) + 1;
       if (statusCol && !t.status) sheet.getRange(t.row, statusCol).setValues([['評估中']]);
       if (ownerCol && !t.owner) sheet.getRange(t.row, ownerCol).setValues([[ctx.name]]);
+      clearGovTenderCache_();
     } catch (e) {
       // 回寫原表失敗不影響新系統的追蹤紀錄。
     }
