@@ -17,6 +17,24 @@ module.exports = (test, { assert }) => {
     assert.throws(() => call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 1, due_date: '2000-01-01' } }), e => /歸還日/.test(e.message));
   });
 
+  test('[資材] 刪除：只有管理者、主管、保管人或建立者；借出中不能刪；逐台的單台一起刪', ({ call, app }) => {
+    let item = call('hazel', 'inventory.create', { record: { name: '攝影機', quantity: 2, unit: '台', category: '3C' } });
+    item = call('hazel', 'inventory.setMode', { id: item.id, expectedUpdatedAt: item.updated_at, kind: '資產', track_mode: '逐台' });
+    const units = call('hazel', 'inventory.units', { inventory_id: item.id });
+    const loan = call('amy', 'loan.borrow', { record: { inventory_id: item.id, unit_ids: [units[0].id], due_date: '2099-01-01' } });
+    const cur = () => app.repo_('inventory').findById(item.id).updated_at;
+    assert.throws(() => call('amy', 'inventory.delete', { id: item.id, expectedUpdatedAt: cur() }), /才可以刪除|可以刪除這項/);
+    assert.throws(() => call('hazel', 'inventory.delete', { id: item.id, expectedUpdatedAt: cur() }), /借出中/);
+    call('amy', 'loan.return', { id: loan.id, expectedUpdatedAt: loan.updated_at });
+    call('hazel', 'inventory.delete', { id: item.id, expectedUpdatedAt: cur() });
+    assert.ok(!call('hazel', 'inventory.withStock').some(i => i.id === item.id));
+    assert.strictEqual(app.repo_('inventory_units').findWhere(u => u.inventory_id === item.id).length, 0);
+    assert.strictEqual(call('hazel', 'loan.list').filter(l => l.inventory_id === item.id).length, 1);
+    // 保管人可以刪自己保管的
+    const mine = call('hazel', 'inventory.create', { record: { name: '延長線', quantity: 5, category: '電力照明', manager_account: 'amy' } });
+    call('amy', 'inventory.delete', { id: mine.id, expectedUpdatedAt: mine.updated_at });
+  });
+
   test('[資材] 逐台資產：轉換時依數量建單台；借用要指定哪幾台；借出狀態只能由借還改；損壞歸還改維修；報廢不算總數', ({ call, app }) => {
     let item = call('hazel', 'inventory.create', { record: { name: '華碩筆電', quantity: 3, unit: '台', category: '3C' } });
     item = call('hazel', 'inventory.setMode', { id: item.id, expectedUpdatedAt: item.updated_at, kind: '資產', track_mode: '逐台' });

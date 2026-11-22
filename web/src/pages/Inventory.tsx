@@ -122,6 +122,7 @@ function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { ite
           </span> },
           { key: "keeper", label: "保管人", render: i => i.manager_account ? lk.nameOf(i.manager_account) : <span className="muted">未指定</span> },
           { key: "x", label: "", render: i => <span className="row-actions" onClick={e => e.stopPropagation()}>
+            <button className="btn small" onClick={() => onEdit(i)}>編輯</button>
             {i.kind === "耗材" ? <>
               <button className="btn small primary" onClick={() => onStock(i, "領用")}>領用</button>
               <button className="btn small" onClick={() => onStock(i, "入庫")}>入庫</button>
@@ -209,6 +210,14 @@ function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opt
     }, "已儲存");
     if (r) onSaved();
   };
+  const remove = async () => {
+    if (!item) return;
+    if (item.on_loan > 0) { alert("「" + item.name + "」還有借出中的紀錄，請先到借用檔歸還再刪除。"); return; }
+    const extra = item.track_mode === "逐台" && item.total ? "，連同 " + item.total + " 台單台資料" : "";
+    if (!confirm("確定刪除「" + item.name + "」" + (item.code ? "（" + item.code + "）" : "") + extra + "？\n借用與庫存異動的歷史紀錄會保留。")) return;
+    const r = await run(() => call("inventory.delete", { id: item.id, expectedUpdatedAt: item.updated_at }), "已刪除");
+    if (r) onSaved();
+  };
   const convert = async (k: string, m: string) => {
     const r = await run(() => call("inventory.setMode", { id: item.id, expectedUpdatedAt: item.updated_at, kind: k, track_mode: m }), "已轉換為「" + (k === "耗材" ? "耗材" : k + "・" + m) + "」");
     if (r) onSaved();
@@ -227,7 +236,8 @@ function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opt
         </div>
       )}
       <RecordForm busy={busy} initial={item || { kind: "資產", track_mode: "整批" }} onCancel={onClose} onSubmit={save} fields={fields}
-        onValuesChange={(n, v) => { if (n === "kind") setKind(v || "資產"); if (n === "track_mode") setMode(v || "整批"); }} />
+        onValuesChange={(n, v) => { if (n === "kind") setKind(v || "資產"); if (n === "track_mode") setMode(v || "整批"); }}
+        extra={!isNew && <button type="button" className="btn danger-link" disabled={busy} onClick={remove}>刪除這項資材</button>} />
     </Modal>
   );
 }

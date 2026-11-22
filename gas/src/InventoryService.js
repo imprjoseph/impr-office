@@ -249,6 +249,30 @@ const InventoryService = {
     });
   },
 
+  /**
+   * 刪除資材（邏輯刪除，借用與庫存異動紀錄保留）：管理者、主管、保管人或建立的人才可以刪。
+   * 有借出中的不能刪；逐台的單台資料一起刪除。
+   */
+  remove(id, expected, ctx) {
+    return withScriptLock_(() => {
+      const repo = repo_('inventory');
+      const snapshot = loadCurrentForWrite_(repo, id, expected);
+      const item = snapshot.record;
+      if (!hasRole_(ctx, [ROLES.ADMIN, ROLES.MANAGER]) && item.manager_account !== ctx.account && item.created_by !== ctx.account) {
+        throw new AppError(ERROR_CODES.FORBIDDEN, '只有管理者、主管、保管人或建立的人可以刪除這項資材');
+      }
+      if (repo_('loans').findWhere(l => l.inventory_id === id && l.status === LOAN_STATUS.OUT).length) {
+        throw new AppError(ERROR_CODES.VALIDATION, '還有借出中的紀錄，請先歸還再刪除');
+      }
+      const ur = repo_('inventory_units');
+      const units = unitsOf_(id);
+      units.forEach(u => ur.markDeleted(ur.readForWrite(u.id), ctx.account));
+      const out = repo.markDeleted(snapshot, ctx.account);
+      audit_(ctx, 'inventory.delete', 'inventory', id, { name: item.name, code: item.code || null, units: units.length });
+      return out;
+    });
+  },
+
   deleteUnit(id, expected, ctx) {
     return withScriptLock_(() => {
       const repo = repo_('inventory_units');
@@ -376,12 +400,7 @@ function inventoryRoutes_() {
       const a = updateArgs_(p, INVENTORY_FIELDS_, '資材');
       return InventoryService.update(a.id, a.expected, a.patch, ctx);
     } },
-    'inventory.delete': { roles: r, handler: (p, ctx) => withScriptLock_(() => {
-      const [id, expected] = idArgs(p);
-      if (repo_('loans').findWhere(l => l.inventory_id === id && l.status === LOAN_STATUS.OUT).length) throw new AppError(ERROR_CODES.VALIDATION, '還有借出中的紀錄，不能刪除');
-      const repo = repo_('inventory');
-      return repo.markDeleted(loadCurrentForWrite_(repo, id, expected), ctx.account);
-    }) },
+    'inventory.delete': { roles: r, handler: (p, ctx) => InventoryService.remove(...idArgs(p), ctx) },
     'inventory.setMode': { roles: r, handler: (p, ctx) => InventoryService.setMode(...idArgs(p), p.kind || null, p.track_mode || null, ctx) },
     'inventory.photos': { roles: r, handler: p => {
       const want = {};
