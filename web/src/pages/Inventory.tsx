@@ -21,6 +21,7 @@ export default function Inventory() {
   const [unitsOf, setUnitsOf] = useState<any | null>(null);
   const [stockOf, setStockOf] = useState<{ item: any; kind: string } | null>(null);
   const [returning, setReturning] = useState<any | null>(null);
+  const [maintOf, setMaintOf] = useState<any | null>(null);
   const { busy, run } = useAction();
   const reload = () => { items.reload(); loans.reload(); };
   const giveBack = async (l: any, damaged: string[]) => {
@@ -29,14 +30,19 @@ export default function Inventory() {
   };
   const out = (loans.data || []).filter(l => l.status === "借出中");
   const overdue = out.filter(l => l.overdue).length;
+  const maintDue = (items.data || []).filter(i => i.maint_status && i.maint_status !== "正常").length;
   return (
     <Page title="資材" sub="資材總檔依分類列出每項資材與保管人；借用檔記錄每一次借出與歸還。資產要歸還（逐台：每台有財產編號；整批：只記數量），耗材用掉就扣庫存。"
       actions={<button className="btn primary" onClick={() => setEditing(null)}>＋ 新增資材</button>}>
-      <Tabs tabs={[["master", "資材總檔"], ["loans", "借用檔" + (out.length ? "（借出中 " + out.length + (overdue ? "・逾期 " + overdue : "") + "）" : "")]]} value={view} onChange={setView} />
+      <Tabs tabs={[["master", "資材總檔"], ["loans", "借用檔" + (out.length ? "（借出中 " + out.length + (overdue ? "・逾期 " + overdue : "") + "）" : "")],
+        ["maint", "保養檔" + (maintDue ? "（待保養 " + maintDue + "）" : "")]]} value={view} onChange={setView} />
       {view === "master"
-        ? <Master items={items} categories={opts.data?.categories || []} onEdit={setEditing} onBorrow={setBorrowing} onUnits={setUnitsOf} onStock={(item, kind) => setStockOf({ item, kind })} />
-        : <Loans loans={loans} busy={busy} onReturn={l => l.unit_ids ? setReturning(l) : giveBack(l, [])} />}
-      {editing !== undefined && opts.data && <ItemForm item={editing} opts={opts.data} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }} />}
+        ? <Master items={items} categories={opts.data?.categories || []} onEdit={setEditing} onBorrow={setBorrowing} onUnits={setUnitsOf} onStock={(item, kind) => setStockOf({ item, kind })} onMaint={setMaintOf} />
+        : view === "loans" ? <Loans loans={loans} busy={busy} onReturn={l => l.unit_ids ? setReturning(l) : giveBack(l, [])} />
+        : <MaintLog items={items} onMaint={setMaintOf} />}
+      {editing !== undefined && opts.data && <ItemForm item={editing} opts={opts.data} onClose={() => setEditing(undefined)} onSaved={() => { setEditing(undefined); reload(); }}
+        onMaint={() => { const i = editing; setEditing(undefined); setMaintOf(i); }} />}
+      {maintOf && opts.data && <Maintenance item={(items.data || []).find(i => i.id === maintOf.id) || maintOf} opts={opts.data} onChanged={items.reload} onClose={() => setMaintOf(null)} />}
       {borrowing && <BorrowForm item={borrowing} unitIds={null} onClose={() => setBorrowing(null)} onDone={() => { setBorrowing(null); reload(); }} />}
       {unitsOf && opts.data && <Units item={unitsOf} opts={opts.data} onClose={() => { setUnitsOf(null); reload(); }} />}
       {stockOf && <StockMove item={stockOf.item} initialKind={stockOf.kind} onClose={() => setStockOf(null)} onDone={() => { setStockOf(null); reload(); }} />}
@@ -53,11 +59,12 @@ const STATUS_FILTERS: [string, string, (i: any) => boolean][] = [
   ["none", "已全部借出", i => i.kind !== "耗材" && i.total > 0 && i.available <= 0],
   ["repair", "維修中", i => i.repair > 0],
   ["low", "庫存不足", i => !!i.low_stock],
+  ["maint", "待保養（逾期、即將到期、未保養過）", i => !!i.maint_status && i.maint_status !== "正常"],
   ["nokeeper", "未指定保管人", i => !i.manager_account],
 ];
 
 /** 資材總檔：大項（資產／耗材）→ 中項（文具、3C、展架…）分組；狀態、保管人另外篩選。 */
-function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { items: any; categories: string[]; onEdit: (i: any) => void; onBorrow: (i: any) => void; onUnits: (i: any) => void; onStock: (i: any, kind: string) => void }) {
+function Master({ items, categories, onEdit, onBorrow, onUnits, onStock, onMaint }: { items: any; categories: string[]; onEdit: (i: any) => void; onBorrow: (i: any) => void; onUnits: (i: any) => void; onStock: (i: any, kind: string) => void; onMaint: (i: any) => void }) {
   const lk = useLookups();
   const [kind, setKind] = useState("全部");
   const [category, setCategory] = useState("");
@@ -119,10 +126,12 @@ function Master({ items, categories, onEdit, onBorrow, onUnits, onStock }: { ite
             {i.on_loan > 0 && <Badge text={"借出中 " + i.on_loan} tone="yellow" />}
             {i.repair > 0 && <Badge text={"維修中 " + i.repair} tone="red" />}
             {!i.low_stock && !i.on_loan && !i.repair && <Badge text={i.kind === "耗材" ? "正常" : "可借用"} tone="green" />}
+            {i.maint_status && i.maint_status !== "正常" && <MaintBadge item={i} />}
           </span> },
           { key: "keeper", label: "保管人", render: i => i.manager_account ? lk.nameOf(i.manager_account) : <span className="muted">未指定</span> },
           { key: "x", label: "", render: i => <span className="row-actions" onClick={e => e.stopPropagation()}>
             <button className="btn small" onClick={() => onEdit(i)}>編輯</button>
+            {i.needs_maintenance && <button className="btn small" onClick={() => onMaint(i)}>保養</button>}
             {i.kind === "耗材" ? <>
               <button className="btn small primary" onClick={() => onStock(i, "領用")}>領用</button>
               <button className="btn small" onClick={() => onStock(i, "入庫")}>入庫</button>
@@ -166,15 +175,16 @@ function Loans({ loans, busy, onReturn }: { loans: any; busy: boolean; onReturn:
   </>;
 }
 
-function ItemForm({ item, opts, onClose, onSaved }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void }) {
+function ItemForm({ item, opts, onClose, onSaved, onMaint }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void; onMaint: () => void }) {
   // 列表不帶照片：編輯時先把這一項的照片讀進來，再顯示表單
   const photo = useLoad<Record<string, string>>(item?.has_photo ? "inventory.photos" : null, { ids: item ? [item.id] : [] });
   if (item?.has_photo && !photo.data) return <Modal title={item.name} onClose={onClose}><Loading error={photo.error} loading /></Modal>;
-  return <ItemFormInner item={item && photo.data ? { ...item, photo: photo.data[item.id] || null } : item} opts={opts} onClose={onClose} onSaved={onSaved} />;
+  return <ItemFormInner item={item && photo.data ? { ...item, photo: photo.data[item.id] || null } : item} opts={opts} onClose={onClose} onSaved={onSaved} onMaint={onMaint} />;
 }
 
-function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void }) {
+function ItemFormInner({ item, opts, onClose, onSaved, onMaint }: { item: any | null; opts: any; onClose: () => void; onSaved: () => void; onMaint: () => void }) {
   const [kind, setKind] = useState(item?.kind || "資產");
+  const [needsMaint, setNeedsMaint] = useState(!!item?.needs_maintenance);
   const [mode, setMode] = useState(item?.track_mode || "整批");
   const [converting, setConverting] = useState(false);
   const { busy, run } = useAction();
@@ -196,6 +206,11 @@ function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opt
       : isNew ? [{ name: "quantity", label: "台數（會自動建立單台資料，財產編號之後可改）", type: "number" } as Field] : []),
     { name: "location", label: "放置地點（例如：倉庫 B 第 2 層）" },
     { name: "manager_account", label: "保管人", type: "person", hint: "負責這項資材的人；逐台的可在單台清單另外指定每台的保管人" },
+    { name: "needs_maintenance", label: "需要定期保養", type: "checkbox", hint: "勾選後可登記保養紀錄，並依週期提醒下次保養" },
+    ...(needsMaint ? [
+      { name: "maintenance_cycle_days", label: "保養週期（天，例如 90）", type: "number" } as Field,
+      { name: "maintenance_note", label: "保養項目（例如：清濾網、電池充放電、鏡頭清潔）", type: "textarea" } as Field,
+    ] : []),
     { name: "photo", label: "照片", type: "image", full: true },
     { name: "photo_url", label: "原圖連結（選填，例如雲端硬碟）", type: "url", full: true },
     { name: "note", label: "備註", type: "textarea" },
@@ -224,7 +239,8 @@ function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opt
   };
   return (
     <Modal title={item ? item.name : "新增資材"} onClose={onClose}>
-      {!isNew && <p className="muted small">目前是「{kindLabel(item)}」。<button type="button" className="linkish" style={{ color: "var(--brand-2)" }} onClick={() => setConverting(!converting)}>轉換管理方式</button></p>}
+      {!isNew && <p className="muted small">目前是「{kindLabel(item)}」。<button type="button" className="linkish" style={{ color: "var(--brand-2)" }} onClick={() => setConverting(!converting)}>轉換管理方式</button>
+        {"　"}<button type="button" className="linkish" style={{ color: "var(--brand-2)" }} onClick={onMaint}>保養／維修紀錄{item.last_maint_date ? "（上次 " + shortDate(item.last_maint_date) + "）" : ""}</button></p>}
       {converting && (
         <div className="card">
           <p className="small">轉換前要先歸還所有借出。整批轉逐台時，系統依目前數量建立單台資料（財產編號 A-0001 起，之後可改）；逐台轉整批時，數量改成未報廢的台數。</p>
@@ -236,7 +252,7 @@ function ItemFormInner({ item, opts, onClose, onSaved }: { item: any | null; opt
         </div>
       )}
       <RecordForm busy={busy} initial={item || { kind: "資產", track_mode: "整批" }} onCancel={onClose} onSubmit={save} fields={fields}
-        onValuesChange={(n, v) => { if (n === "kind") setKind(v || "資產"); if (n === "track_mode") setMode(v || "整批"); }}
+        onValuesChange={(n, v) => { if (n === "kind") setKind(v || "資產"); if (n === "track_mode") setMode(v || "整批"); if (n === "needs_maintenance") setNeedsMaint(!!v); }}
         extra={!isNew && <button type="button" className="btn danger-link" disabled={busy} onClick={remove}>刪除這項資材</button>} />
     </Modal>
   );
@@ -353,4 +369,111 @@ function ReturnUnits({ loan, busy, onClose, onReturn }: { loan: any; busy: boole
         <button className="btn primary" disabled={busy} onClick={() => onReturn(ids.filter(id => damaged[id]))}>確認歸還</button></div>
     </Modal>
   );
+}
+
+function MaintBadge({ item }: { item: any }) {
+  const s = item.maint_status;
+  return <Badge text={s === "逾期" ? "保養逾期 " + shortDate(item.next_maint_date) : s === "即將到期" ? "待保養 " + shortDate(item.next_maint_date) : "未保養過"} tone={s === "逾期" ? "red" : "yellow"} />;
+}
+
+/** 單一資材的保養紀錄：上面是保養設定與下次保養日，下面是歷次紀錄；可登記新的一筆。 */
+function Maintenance({ item, opts, onClose, onChanged }: { item: any; opts: any; onClose: () => void; onChanged: () => void }) {
+  const lk = useLookups();
+  const logs = useLoad<any[]>("maintenance.list", { inventory_id: item.id });
+  const units = useLoad<any[]>(item.track_mode === "逐台" ? "inventory.units" : null, { inventory_id: item.id });
+  const [editing, setEditing] = useState<any | null | undefined>(undefined);
+  const { busy, run } = useAction();
+  const cycle = Number(item.maintenance_cycle_days) || 0;
+  const save = async (v: any) => {
+    const r = await run(() => editing
+      ? call("maintenance.update", { id: editing.id, expectedUpdatedAt: editing.updated_at, patch: v })
+      // 新增時表單預填的類型與保養項目沒改不會送出，這裡補上
+      : call("maintenance.add", { record: Object.assign({ inventory_id: item.id, kind: "定期保養", content: item.maintenance_note || null }, v) }), "已儲存保養紀錄");
+    if (r) { setEditing(undefined); onChanged(); logs.reload(); units.reload(); }
+  };
+  const remove = async () => {
+    if (!editing || !confirm("確定刪除這筆保養紀錄？")) return;
+    const r = await run(() => call("maintenance.delete", { id: editing.id, expectedUpdatedAt: editing.updated_at }), "已刪除");
+    if (r) { setEditing(undefined); onChanged(); logs.reload(); }
+  };
+  const unitOpts: [string, string][] = (units.data || []).filter(u => u.status !== "報廢").map(u => [u.id, u.asset_tag + (u.status !== "可用" ? "（" + u.status + "）" : "")]);
+  const fields: Field[] = [
+    { name: "maint_date", label: "保養日期（空白是今天）", type: "date" },
+    { name: "kind", label: "類型", type: "select", options: opts.maintKinds, required: true },
+    ...(!editing && unitOpts.length ? [{ name: "unit_ids", label: "哪幾台（不選＝整項）", type: "multi", options: unitOpts, full: true, hint: "結果選「需維修」會把這幾台改成維修中；「正常／已修復」會把維修中的改回可用" } as Field] : []),
+    { name: "content", label: "保養內容", type: "textarea", required: true },
+    { name: "result", label: "結果", type: "select", options: opts.maintResults },
+    { name: "performer_account", label: "執行人（空白是自己）", type: "person" },
+    { name: "vendor", label: "送修／保養廠商" },
+    { name: "cost", label: "費用", type: "number" },
+    { name: "next_due_date", label: "下次保養日" + (cycle ? "（空白依週期 " + cycle + " 天推算）" : ""), type: "date" },
+    { name: "note", label: "備註", type: "textarea" },
+  ];
+  return (
+    <Modal wide title={"保養紀錄：" + item.name + (item.code ? "（" + item.code + "）" : "")} onClose={onClose}>
+      <div className="card">
+        {item.needs_maintenance
+          ? <p className="small">保養週期：{cycle ? "每 " + cycle + " 天" : "未設定"}{"　"}上次保養：{item.last_maint_date ? shortDate(item.last_maint_date) : "—"}
+            {"　"}下次保養：{item.next_maint_date ? shortDate(item.next_maint_date) : "—"}{"　"}{item.maint_status && item.maint_status !== "正常" && <MaintBadge item={item} />}
+            {item.maintenance_note && <span className="muted block">保養項目：{item.maintenance_note}</span>}</p>
+          : <p className="small muted">這項沒有勾「需要定期保養」，不會提醒；維修或檢查還是可以記在這裡。要定期保養請到「編輯」勾選並設定週期。</p>}
+      </div>
+      <div className="page-actions"><button className="btn small primary" onClick={() => setEditing(null)}>＋ 登記保養</button></div>
+      <Loading error={logs.error} loading={logs.loading && !logs.data} />
+      {logs.data && <Table rows={logs.data} onRow={l => setEditing(l)} empty="還沒有保養紀錄。" columns={[
+        { key: "d", label: "日期", render: l => shortDate(l.maint_date) },
+        { key: "k", label: "類型", render: l => <><b>{l.kind}</b>{l.unit_tags.length > 0 && <small className="muted block">{l.unit_tags.join("、")}</small>}</> },
+        { key: "c", label: "內容", render: l => <>{l.content}{l.vendor && <small className="muted block">{l.vendor}</small>}</> },
+        { key: "r", label: "結果", render: l => l.result ? <Badge text={l.result} tone={l.result === "需維修" || l.result === "已報廢" ? "red" : "green"} /> : "—" },
+        { key: "p", label: "執行人", hideSm: true, render: l => l.performer_account ? lk.nameOf(l.performer_account) : "—" },
+        { key: "m", label: "費用", num: true, hideSm: true, render: l => l.cost != null ? Number(l.cost).toLocaleString() : "—" },
+      ]} />}
+      {editing !== undefined && <Modal title={editing ? "保養紀錄 " + shortDate(editing.maint_date) : "登記保養"} onClose={() => setEditing(undefined)}>
+        <RecordForm busy={busy} initial={editing || { kind: "定期保養", content: item.maintenance_note || null }} onCancel={() => setEditing(undefined)} onSubmit={save} fields={fields}
+          extra={editing && <button type="button" className="btn danger-link" onClick={remove}>刪除這筆</button>} />
+      </Modal>}
+    </Modal>
+  );
+}
+
+/** 保養檔：上面列待保養的資材，下面是全部保養紀錄。 */
+function MaintLog({ items, onMaint }: { items: any; onMaint: (i: any) => void }) {
+  const lk = useLookups();
+  const logs = useLoad<any[]>("maintenance.list");
+  const [q, setQ] = useState("");
+  const [kind, setKind] = useState("");
+  const all: any[] = items.data || [];
+  const due = all.filter(i => i.maint_status && i.maint_status !== "正常")
+    .sort((a, b) => String(a.next_maint_date || "").localeCompare(String(b.next_maint_date || "")));
+  const tracked = all.filter(i => i.needs_maintenance).length;
+  const rows = (logs.data || []).filter(l => (!kind || l.kind === kind) &&
+    (!q || [l.item_name, l.item_code, l.content, l.vendor, l.unit_tags.join(" ")].some(v => String(v || "").toLowerCase().includes(q.toLowerCase()))));
+  const byId: Record<string, any> = Object.fromEntries(all.map(i => [i.id, i]));
+  return <>
+    <h3>待保養 <span className="muted small">需定期保養的共 {tracked} 項，其中 {due.length} 項要處理</span></h3>
+    <Table rows={due} onRow={onMaint} empty={tracked ? "需定期保養的資材都還沒到期。" : "目前沒有需定期保養的資材。在資材的「編輯」勾選「需要定期保養」並設定週期，就會出現在這裡。"} columns={[
+      { key: "n", label: "資材", render: i => <><b>{i.name}</b><small className="muted block">{[i.code, i.maintenance_note].filter(Boolean).join("・")}</small></> },
+      { key: "s", label: "狀態", render: i => <MaintBadge item={i} /> },
+      { key: "l", label: "上次保養", render: i => i.last_maint_date ? shortDate(i.last_maint_date) : "—" },
+      { key: "k", label: "保管人", hideSm: true, render: i => i.manager_account ? lk.nameOf(i.manager_account) : <span className="muted">未指定</span> },
+      { key: "x", label: "", render: i => <button className="btn small primary" onClick={e => { e.stopPropagation(); onMaint(i); }}>登記保養</button> },
+    ]} />
+    <h3>保養紀錄</h3>
+    <div className="toolbar">
+      <select value={kind} onChange={e => setKind(e.target.value)} aria-label="類型"><option value="">全部類型</option>
+        {["定期保養", "檢查", "清潔", "校正", "維修"].map(k => <option key={k}>{k}</option>)}</select>
+      <input type="search" placeholder="搜尋資材、編號、內容、廠商" value={q} onChange={e => setQ(e.target.value)} />
+      <span className="muted small">{rows.length} 筆</span>
+    </div>
+    <Loading error={logs.error} loading={logs.loading && !logs.data} />
+    {logs.data && <Table rows={rows} onRow={l => byId[l.inventory_id] && onMaint(byId[l.inventory_id])} empty="還沒有保養紀錄。" columns={[
+      { key: "d", label: "日期", render: l => shortDate(l.maint_date) },
+      { key: "i", label: "資材", render: l => <><b>{l.item_name}</b><small className="muted block">{[l.item_code, l.unit_tags.join("、")].filter(Boolean).join("・")}</small></> },
+      { key: "k", label: "類型", render: l => l.kind },
+      { key: "c", label: "內容", render: l => <>{l.content}{l.vendor && <small className="muted block">{l.vendor}</small>}</> },
+      { key: "r", label: "結果", render: l => l.result ? <Badge text={l.result} tone={l.result === "需維修" || l.result === "已報廢" ? "red" : "green"} /> : "—" },
+      { key: "p", label: "執行人", hideSm: true, render: l => l.performer_account ? lk.nameOf(l.performer_account) : "—" },
+      { key: "m", label: "費用", num: true, hideSm: true, render: l => l.cost != null ? Number(l.cost).toLocaleString() : "—" },
+    ]} />}
+  </>;
 }

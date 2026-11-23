@@ -48,6 +48,8 @@ call('amy', 'loan.borrow', { record: { inventory_id: item.id, quantity: 2, proje
 const nb = call('hazel', 'inventory.create', { record: { name: '華碩筆電', category: '3C', spec: 'ZenBook 14', quantity: 3, unit: '台', location: '辦公室櫃 B' } });
 call('hazel', 'inventory.setMode', { id: nb.id, expectedUpdatedAt: nb.updated_at, kind: '資產', track_mode: '逐台' });
 const nbUnits = call('hazel', 'inventory.units', { inventory_id: nb.id });
+{ const cur = app.repo_('inventory').findById(nb.id); call('hazel', 'inventory.update', { id: nb.id, expectedUpdatedAt: cur.updated_at, patch: { needs_maintenance: true, maintenance_cycle_days: 90, maintenance_note: '清風扇、更新系統' } });
+  call('hazel', 'maintenance.add', { record: { inventory_id: nb.id, kind: '定期保養', content: '清風扇、更新系統', maint_date: day(-95) } }); }
 call('amy', 'loan.borrow', { record: { inventory_id: nb.id, unit_ids: [nbUnits[0].id], project_id: b.id, due_date: day(3) } });
 const badge = call('hazel', 'inventory.create', { record: { name: '識別證套', kind: '耗材', category: '報到設備', quantity: 120, unit: '個', safety_stock: 150 } });
 call('hazel', 'inventory.create', { record: { name: 'A4 影印紙', kind: '耗材', category: '文具', quantity: 20, unit: '包', safety_stock: 5 } });

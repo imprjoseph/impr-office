@@ -35,7 +35,27 @@ function mapInventoryCategory_(v) {
 }
 
 const INVENTORY_FIELDS_ = ['code', 'name', 'kind', 'track_mode', 'category', 'spec', 'quantity', 'unit', 'safety_stock', 'location',
-  'manager_account', 'photo', 'photo_url', 'note'];
+  'manager_account', 'photo', 'photo_url', 'note', 'needs_maintenance', 'maintenance_cycle_days', 'maintenance_note'];
+const MAINT_KIND = ['定期保養', '檢查', '清潔', '校正', '維修'];
+const MAINT_RESULT = ['正常', '已修復', '需維修', '已報廢'];
+const MAINT_FIELDS_ = ['inventory_id', 'unit_ids', 'maint_date', 'kind', 'performer_account', 'vendor', 'content', 'cost', 'result', 'next_due_date', 'note'];
+const MAINT_SOON_DAYS_ = 7;
+
+/**
+ * 保養狀態：只看勾了「需定期保養」的。下次保養日 = 最近一次紀錄的「下次保養日」，沒填就用保養日 + 週期。
+ * 從沒保養過 → 未保養過；已過 → 逾期；7 天內 → 即將到期。
+ */
+function maintenanceInfo_(item, logs, today) {
+  // 同一天多筆時以後登記的為準（穩定排序後取最後一筆）
+  const mine = logs.filter(l => l.inventory_id === item.id)
+    .sort((a, b) => String(a.maint_date).localeCompare(String(b.maint_date)) || String(a.created_at).localeCompare(String(b.created_at)));
+  const last = mine[mine.length - 1] || null;
+  if (!item.needs_maintenance) return { last_maint_date: last ? last.maint_date : null, next_maint_date: null, maint_status: null };
+  const cycle = Number(item.maintenance_cycle_days) || 0;
+  const next = last ? (last.next_due_date || (cycle ? addDays_(last.maint_date, cycle) : null)) : null;
+  const status = !last ? '未保養過' : !next ? '正常' : next < today ? '逾期' : next <= addDays_(today, MAINT_SOON_DAYS_) ? '即將到期' : '正常';
+  return { last_maint_date: last ? last.maint_date : null, next_maint_date: next, maint_status: status };
+}
 const UNIT_FIELDS_ = ['asset_tag', 'serial_no', 'status', 'location', 'custodian_account', 'purchase_date', 'cost', 'warranty_until', 'note'];
 
 /** 舊資料沒有 kind / track_mode：一律當整批資產（原本物資系統就是這樣管）。 */
@@ -101,6 +121,8 @@ const InventoryService = {
     const loans = repo_('loans').findWhere(l => l.status === LOAN_STATUS.OUT);
     const out = {};
     loans.forEach(l => { out[l.inventory_id] = (out[l.inventory_id] || 0) + (Number(l.quantity) || 0); });
+    const maintLogs = repo_('maintenance_logs').findAll();
+    const today = todayIso_();
     return sortBy_(repo_('inventory').findAll(), 'name').map(i => {
       const kind = itemKind_(i), mode = itemMode_(i);
       let total, available, onLoan, repair = 0;
@@ -122,7 +144,8 @@ const InventoryService = {
       const low = kind === INVENTORY_KIND.CONSUMABLE && i.safety_stock !== null && i.safety_stock !== undefined && i.safety_stock !== '' &&
         total <= Number(i.safety_stock);
       // 列表不帶照片本身（每張約 30KB，45 項就 1MB 多，會拖慢載入）；要看時另外讀
-      const row = Object.assign({}, i, { kind, track_mode: mode, total, available, on_loan: onLoan, repair, low_stock: low, has_photo: !!i.photo });
+      const row = Object.assign({}, i, { kind, track_mode: mode, total, available, on_loan: onLoan, repair, low_stock: low, has_photo: !!i.photo },
+        maintenanceInfo_(i, maintLogs, today));
       delete row.photo;
       return row;
     });
@@ -131,7 +154,8 @@ const InventoryService = {
   options() {
     return { kinds: [INVENTORY_KIND.ASSET, INVENTORY_KIND.CONSUMABLE], modes: [TRACK_MODE.UNIT, TRACK_MODE.BATCH],
       categories: inventoryCategories_(),
-      unitStatuses: [UNIT_STATUS.AVAILABLE, UNIT_STATUS.REPAIR, UNIT_STATUS.RETIRED] };
+      unitStatuses: [UNIT_STATUS.AVAILABLE, UNIT_STATUS.REPAIR, UNIT_STATUS.RETIRED],
+      maintKinds: MAINT_KIND, maintResults: MAINT_RESULT };
   },
 
   create(record, ctx) {
@@ -372,10 +396,103 @@ const InventoryService = {
     });
   },
 
+  // ---------- 保養 ----------
+  maintenanceLogs(itemId) {
+    const items = indexBy_(repo_('inventory').findAll({ includeDeleted: true }), 'id');
+    const units = indexBy_(repo_('inventory_units').findAll({ includeDeleted: true }), 'id');
+    return repo_('maintenance_logs').findWhere(l => !itemId || l.inventory_id === itemId)
+      .sort((a, b) => String(b.maint_date).localeCompare(String(a.maint_date)) || String(b.created_at).localeCompare(String(a.created_at)))
+      .map(l => Object.assign({}, l, {
+        item_name: (items[l.inventory_id] || {}).name || '（已刪除）', item_code: (items[l.inventory_id] || {}).code || null,
+        unit_tags: String(l.unit_ids || '').split(',').filter(Boolean).map(id => (units[id] || {}).asset_tag || '?'),
+      }));
+  },
+
+  /**
+   * 登記保養。逐台的可指定哪幾台：結果「需維修」→ 那幾台改維修；「正常／已修復」→ 維修中的改回可用；「已報廢」→ 改報廢。
+   * 借出中的台不能登記結果（要先歸還）。
+   */
+  addMaintenance(input, ctx) {
+    const data = assertMaintenance_(input, null);
+    return withScriptLock_(() => {
+      const item = repo_('inventory').findById(data.inventory_id);
+      if (!item) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到資材');
+      const ids = maintUnitIds_(item, data.unit_ids);
+      data.unit_ids = ids.length ? ids.join(',') : null;
+      applyMaintResult_(ids, data.result, ctx);
+      return repo_('maintenance_logs').insert(Object.assign({ maint_date: todayIso_(), performer_account: ctx.account }, data), ctx.account);
+    });
+  },
+
+  updateMaintenance(id, expected, patch, ctx) {
+    const data = assertMaintenance_(patch, true);
+    delete data.inventory_id; delete data.unit_ids;
+    return withScriptLock_(() => {
+      const repo = repo_('maintenance_logs');
+      const snapshot = loadCurrentForWrite_(repo, id, expected);
+      assertMaintOwner_(snapshot.record, ctx);
+      return repo.writeSnapshot(snapshot, data, ctx.account);
+    });
+  },
+
+  deleteMaintenance(id, expected, ctx) {
+    return withScriptLock_(() => {
+      const repo = repo_('maintenance_logs');
+      const snapshot = loadCurrentForWrite_(repo, id, expected);
+      assertMaintOwner_(snapshot.record, ctx);
+      return repo.markDeleted(snapshot, ctx.account);
+    });
+  },
+
   moves(itemId) {
     return sortBy_(repo_('stock_moves').findWhere(m => !itemId || m.inventory_id === itemId), 'created_at').reverse();
   },
 };
+
+function assertMaintenance_(data, isPatch) {
+  const out = Object.assign({}, data);
+  if (!isPatch || 'kind' in out) {
+    if (MAINT_KIND.indexOf(out.kind) === -1) throw new AppError(ERROR_CODES.VALIDATION, '保養類型只能是：' + MAINT_KIND.join('、'));
+  }
+  if (!isPatch || 'content' in out) {
+    if (!String(out.content || '').trim()) throw new AppError(ERROR_CODES.VALIDATION, '請填保養內容');
+  }
+  if (out.result && MAINT_RESULT.indexOf(out.result) === -1) throw new AppError(ERROR_CODES.VALIDATION, '結果只能是：' + MAINT_RESULT.join('、'));
+  if (out.cost !== null && out.cost !== undefined && out.cost !== '' && !(Number(out.cost) >= 0)) throw new AppError(ERROR_CODES.VALIDATION, '費用不能小於 0');
+  if (out.maint_date && out.maint_date > todayIso_()) throw new AppError(ERROR_CODES.VALIDATION, '保養日不能是未來的日期');
+  if (out.next_due_date && out.maint_date && out.next_due_date <= out.maint_date) throw new AppError(ERROR_CODES.VALIDATION, '下次保養日要在保養日之後');
+  return out;
+}
+
+function maintUnitIds_(item, raw) {
+  const ids = (Array.isArray(raw) ? raw : String(raw || '').split(/[,、，]/)).map(String).map(s => s.trim()).filter(Boolean);
+  if (!ids.length) return [];
+  if (itemMode_(item) !== TRACK_MODE.UNIT) throw new AppError(ERROR_CODES.VALIDATION, '「' + item.name + '」不是逐台管理，不用指定哪幾台');
+  const units = indexBy_(unitsOf_(item.id), 'id');
+  ids.forEach(id => { if (!units[id]) throw new AppError(ERROR_CODES.VALIDATION, '有一台不屬於「' + item.name + '」，請重新整理'); });
+  return ids;
+}
+
+function applyMaintResult_(ids, result, ctx) {
+  if (!ids.length || !result) return;
+  const units = indexBy_(repo_('inventory_units').findAll(), 'id');
+  const patches = {};
+  ids.forEach(id => {
+    const u = units[id];
+    if (u.status === UNIT_STATUS.ON_LOAN) throw new AppError(ERROR_CODES.VALIDATION, u.asset_tag + ' 借出中，請先歸還再登記保養結果');
+    if (result === '需維修' && u.status !== UNIT_STATUS.REPAIR) patches[id] = { status: UNIT_STATUS.REPAIR };
+    if ((result === '正常' || result === '已修復') && u.status === UNIT_STATUS.REPAIR) patches[id] = { status: UNIT_STATUS.AVAILABLE };
+    if (result === '已報廢' && u.status !== UNIT_STATUS.RETIRED) patches[id] = { status: UNIT_STATUS.RETIRED };
+  });
+  if (Object.keys(patches).length) repo_('inventory_units').updateMany(patches, ctx.account);
+}
+
+/** 保養紀錄只有登記的人、管理者、主管能改或刪。 */
+function assertMaintOwner_(log, ctx) {
+  if (!hasRole_(ctx, [ROLES.ADMIN, ROLES.MANAGER]) && log.created_by !== ctx.account) {
+    throw new AppError(ERROR_CODES.FORBIDDEN, '只有登記的人、管理者或主管可以修改這筆保養紀錄');
+  }
+}
 
 function assertUnitValues_(data, selfId) {
   if ('status' in data && [UNIT_STATUS.AVAILABLE, UNIT_STATUS.ON_LOAN, UNIT_STATUS.REPAIR, UNIT_STATUS.RETIRED].indexOf(data.status) === -1) {
@@ -424,5 +541,12 @@ function inventoryRoutes_() {
     'stock.move': { roles: r, handler: (p, ctx) =>
       InventoryService.moveStock(pickAllowed_(p.record || {}, ['inventory_id', 'kind', 'quantity', 'project_id', 'account', 'move_date', 'note'], '庫存異動'), ctx) },
     'stock.moves': { roles: r, handler: p => InventoryService.moves(p.inventory_id || null) },
+    'maintenance.list': { roles: r, handler: p => InventoryService.maintenanceLogs(p.inventory_id || null) },
+    'maintenance.add': { roles: r, handler: (p, ctx) => InventoryService.addMaintenance(pickAllowed_(p.record || {}, MAINT_FIELDS_, '保養紀錄'), ctx) },
+    'maintenance.update': { roles: r, handler: (p, ctx) => {
+      const a = updateArgs_(p, MAINT_FIELDS_.filter(f => f !== 'inventory_id' && f !== 'unit_ids'), '保養紀錄');
+      return InventoryService.updateMaintenance(a.id, a.expected, a.patch, ctx);
+    } },
+    'maintenance.delete': { roles: r, handler: (p, ctx) => InventoryService.deleteMaintenance(...idArgs(p), ctx) },
   };
 }

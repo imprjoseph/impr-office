@@ -148,7 +148,9 @@ const TABLES = {
     'name!, category, quantity:num, unit, location, manager_account, photo_url, note, ' +
     'kind, track_mode, spec, safety_stock:num, ' +
     // code：資材編號（R-0001 起自動給，可改）；photo：瀏覽器壓縮後的小圖（data URL，約 30KB 內），photo_url 放原圖連結
-    'code, photo') },
+    'code, photo, ' +
+    // 需定期保養：勾選後依週期（天）算下次保養日；maintenance_note 寫要保養什麼（例如：電池充放電、鏡頭清潔）
+    'needs_maintenance:bool, maintenance_cycle_days:num, maintenance_note') },
   inventory_units: { prefix: 'inu', cache: false, columns: cols_(
     'inventory_id!, asset_tag!, serial_no, status!, location, purchase_date:date, cost:num, warranty_until:date, note, ' +
     // 這一台的保管人（例如配給某同仁的筆電）；空白就由資材的保管人負責
@@ -164,6 +166,9 @@ const TABLES = {
   // 耗材進出紀錄：入庫、領用、盤點調整。balance 是異動後庫存，方便對帳。
   stock_moves: { prefix: 'stm', cache: false, columns: cols_(
     'inventory_id!, kind!, quantity:num!, balance:num, project_id, account, move_date:date!, note') },
+  // 保養紀錄：每次保養、檢查、維修一筆；逐台的可記是哪幾台（unit_ids）。next_due_date 空白時依週期推算。
+  maintenance_logs: { prefix: 'mnt', cache: false, columns: cols_(
+    'inventory_id!, unit_ids, maint_date:date!, kind!, performer_account, vendor, content!, cost:num, result, next_due_date:date, note') },
   sops: { prefix: 'sop', cache: false, columns: cols_(
     'title!, category, version, effective_date:date, status!, file_url, project_types, note') },
   media: { prefix: 'med', cache: false, columns: cols_(

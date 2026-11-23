@@ -35,6 +35,39 @@ module.exports = (test, { assert }) => {
     call('amy', 'inventory.delete', { id: mine.id, expectedUpdatedAt: mine.updated_at });
   });
 
+  test('[資材] 保養：勾選需保養才算狀態；依週期推下次保養日；逐台結果會改單台狀態；只有登記者或主管能改', ({ call, app }) => {
+    const today = app.todayIso_();
+    let item = call('hazel', 'inventory.create', { record: { name: '投影機', quantity: 2, unit: '台', category: '投影簡報', needs_maintenance: true, maintenance_cycle_days: 90, maintenance_note: '清濾網' } });
+    const row = () => call('hazel', 'inventory.withStock').find(i => i.id === item.id);
+    assert.strictEqual(row().maint_status, '未保養過');
+    item = call('hazel', 'inventory.setMode', { id: item.id, expectedUpdatedAt: item.updated_at, kind: '資產', track_mode: '逐台' });
+    const units = call('hazel', 'inventory.units', { inventory_id: item.id });
+    assert.throws(() => call('hazel', 'maintenance.add', { record: { inventory_id: item.id, kind: '亂寫', content: 'x' } }), /保養類型/);
+    assert.throws(() => call('hazel', 'maintenance.add', { record: { inventory_id: item.id, kind: '定期保養' } }), /保養內容/);
+    const old = app.addDays_(today, -100);
+    call('hazel', 'maintenance.add', { record: { inventory_id: item.id, kind: '定期保養', content: '清濾網', maint_date: old } });
+    assert.strictEqual(row().maint_status, '逾期');
+    assert.strictEqual(row().next_maint_date, app.addDays_(old, 90));
+    const log = call('amy', 'maintenance.add', { record: { inventory_id: item.id, kind: '檢查', content: '燈泡不亮', unit_ids: [units[0].id], result: '需維修', cost: 0 } });
+    assert.strictEqual(log.performer_account, 'amy');
+    assert.strictEqual(call('hazel', 'inventory.units', { inventory_id: item.id })[0].status, '維修');
+    assert.strictEqual(row().maint_status, '正常');
+    assert.strictEqual(row().next_maint_date, app.addDays_(today, 90));
+    call('hazel', 'maintenance.add', { record: { inventory_id: item.id, kind: '維修', content: '換燈泡', unit_ids: [units[0].id], result: '已修復', cost: 3500, next_due_date: app.addDays_(today, 3) } });
+    assert.strictEqual(call('hazel', 'inventory.units', { inventory_id: item.id })[0].status, '可用');
+    assert.strictEqual(row().maint_status, '即將到期');
+    const logs = call('hazel', 'maintenance.list', { inventory_id: item.id });
+    assert.strictEqual(logs.length, 3);
+    assert.deepStrictEqual([...logs.find(l => l.id === log.id).unit_tags], [units[0].asset_tag]);
+    assert.throws(() => call('hazel', 'maintenance.delete', { id: log.id, expectedUpdatedAt: log.updated_at }), /登記的人/);
+    call('amy', 'maintenance.update', { id: log.id, expectedUpdatedAt: log.updated_at, patch: { note: '已叫修' } });
+    // 沒勾需保養的不算保養狀態，但還是可以記維修
+    const plain = call('hazel', 'inventory.create', { record: { name: '延長線', quantity: 5, category: '電力照明' } });
+    call('hazel', 'maintenance.add', { record: { inventory_id: plain.id, kind: '維修', content: '換插頭' } });
+    assert.strictEqual(call('hazel', 'inventory.withStock').find(i => i.id === plain.id).maint_status, null);
+    assert.throws(() => call('hazel', 'maintenance.add', { record: { inventory_id: plain.id, kind: '維修', content: 'x', unit_ids: ['u1'] } }), /不是逐台/);
+  });
+
   test('[資材] 逐台資產：轉換時依數量建單台；借用要指定哪幾台；借出狀態只能由借還改；損壞歸還改維修；報廢不算總數', ({ call, app }) => {
     let item = call('hazel', 'inventory.create', { record: { name: '華碩筆電', quantity: 3, unit: '台', category: '3C' } });
     item = call('hazel', 'inventory.setMode', { id: item.id, expectedUpdatedAt: item.updated_at, kind: '資產', track_mode: '逐台' });
