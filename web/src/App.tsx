@@ -141,6 +141,7 @@ function Shell() {
           <button className="icon-btn only-sm" onClick={() => setOpen(true)} aria-label="開啟選單"><Menu size={22} /></button>
           <span className="spacer" />
           <span className="who">{me.name}<small>{ROLE_LABEL[me.role]}</small></span>
+          <button className="icon-btn" onClick={() => setPwd(true)} aria-label="變更密碼" title="變更密碼"><KeyRound size={18} aria-hidden /></button>
         </header>
         <main>{page}</main>
       </div>
