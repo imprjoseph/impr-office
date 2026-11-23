@@ -29,6 +29,8 @@ const BudgetService = {
       })),
       changes,
       unlinkedExpenses: expenses.filter(e => !e.budget_line_id || !summary.lineIds[e.budget_line_id]),
+      // 已計入成本的費用（已核准、已付款），預算分頁可以改它們對沖哪個科目
+      expenses: sortBy_(expenses, 'receipt_date').reverse(),
       labor,
       totals: summary.totals,
     };
@@ -214,6 +216,18 @@ function computeMargin_(lines, changes, expenses, labor) {
 function budgetRoutes_() {
   return {
     'budget.categories': { roles: INTERNAL_ROLES_, handler: () => BUDGET_CATEGORIES },
+    // 請款時選「對沖哪一筆成本」用：同仁都看得到科目名稱；PM 與財務角色另外看得到預估、已用、剩餘。
+    'budget.lineOptions': { roles: INTERNAL_ROLES_, handler: (p, ctx) => {
+      const id = requireString_(p, 'project_id');
+      const project = repo_('projects').findById(id);
+      if (!project) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到專案');
+      if (ProjectService.canSeeFinance(ctx, project)) {
+        return BudgetService.forProject(id).lines.map(l => ({ id: l.id, category: l.category, item: l.item,
+          cost_estimate: l.cost_estimate, used: (Number(l.cost_actual) || 0) + (l.expense_actual || 0),
+          remaining: l.cost_estimate == null || l.cost_estimate === '' ? null : Number(l.cost_estimate) - (Number(l.cost_actual) || 0) - (l.expense_actual || 0) }));
+      }
+      return repo_('budget_lines').findWhere(l => l.project_id === id).map(l => ({ id: l.id, category: l.category, item: l.item }));
+    } },
     'budget.get': { roles: INTERNAL_ROLES_, handler: (p, ctx) => {
       const id = requireString_(p, 'project_id');
       const project = repo_('projects').findById(id);

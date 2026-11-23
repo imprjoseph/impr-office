@@ -22,14 +22,17 @@ export default function Expenses() {
     { name: "category", label: "類別", type: "select", options: cats.data || [], required: true },
     { name: "amount", label: "金額（含稅）", type: "number", required: true },
     { name: "project_id", label: "掛哪個專案", type: "project", hint: "掛專案的費用核准後會計入專案成本" },
-    { name: "budget_line_id", label: "預算科目", type: "select", options: lines.map(l => [l.id, l.category + "／" + l.item] as [string, string]) },
+    { name: "budget_line_id", label: "對沖哪一筆成本（預算科目）", type: "select", full: true,
+      options: lines.map(l => [l.id, l.category + "／" + l.item + (l.remaining != null ? "（預估 " + money(l.cost_estimate) + "，剩 " + money(l.remaining) + "）" : "")] as [string, string]),
+      hint: lines.length ? "核准後這筆金額會算進該科目的實際成本；不確定可以先空白，之後由 PM 指定" : "先選專案；專案還沒有預算科目時請 PM 先建立，或先空白" },
     { name: "receipt_date", label: "單據日期", type: "date" }, { name: "receipt_no", label: "發票或收據號碼" },
     { name: "receipt_url", label: "單據照片連結（雲端硬碟）", type: "url", full: true },
     { name: "payee", label: "付款對象", type: "select", options: ["代墊（付給我）", "付給供應商"] }, { name: "supplier_id", label: "供應商", type: "supplier" },
   ];
   const loadLines = async (projectId?: string | null) => {
     if (!projectId) return setLines([]);
-    try { setLines((await call<any>("budget.get", { project_id: projectId })).lines); } catch { setLines([]); }
+    // 同仁看不到專案預算，這裡只拿科目名稱（PM 與財務角色另外有預估與剩餘）
+    try { setLines(await call<any[]>("budget.lineOptions", { project_id: projectId })); } catch { setLines([]); }
   };
   const open = (e: any | null) => { setEditing(e); loadLines(e?.project_id); };
   const save = async (v: any) => {
@@ -65,6 +68,7 @@ export default function Expenses() {
             <dt>金額</dt><dd>{money(viewing.amount)} 元</dd>
             <dt>申請人</dt><dd>{lk.nameOf(viewing.claimant_account)}</dd>
             <dt>專案</dt><dd>{lk.projectName(viewing.project_id)}</dd>
+            {viewing.project_id && <><dt>對沖科目</dt><dd>{viewing.budget_line_label || <span className="muted">未指定</span>}</dd></>}
             <dt>單據</dt><dd>{viewing.receipt_no || "—"} {viewing.receipt_url && <a href={viewing.receipt_url} target="_blank" rel="noopener noreferrer">查看單據 ↗</a>}</dd>
             {viewing.review_note && <><dt>審核意見</dt><dd>{viewing.review_note}</dd></>}
             {viewing.pay_note && <><dt>付款備註</dt><dd>{viewing.pay_note}</dd></>}

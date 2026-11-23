@@ -50,6 +50,29 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(call('hazel', 'budget.get', { project_id: project.id }).lines[0].expense_actual, 70000);
   });
 
+  test('[請款] 對沖成本：同仁看得到科目名稱（看不到金額）；PM 或財務可事後改對沖科目並重算；同仁不行；科目要屬於該專案', ({ call }) => {
+    const { project, line } = setup(call);
+    const opts = call('amy', 'budget.lineOptions', { project_id: project.id });
+    assert.deepStrictEqual(Object.keys(opts[0]).sort(), ['category', 'id', 'item']);
+    assert.strictEqual(call('hazel', 'budget.lineOptions', { project_id: project.id })[0].remaining, 60000);
+    const d = call('amy', 'expense.create', { record: { project_id: project.id, category: '設備租借', description: '音響', amount: 30000 } });
+    const s = call('amy', 'expense.submit', { id: d.id, expectedUpdatedAt: d.updated_at });
+    const a = call('mgr', 'expense.approve', { id: s.id, expectedUpdatedAt: s.updated_at });
+    assert.strictEqual(call('hazel', 'budget.get', { project_id: project.id }).unlinkedExpenses.length, 1);
+    assert.throws(() => call('amy', 'expense.setBudgetLine', { id: a.id, budget_line_id: line.id }), /PM 或財務/);
+    call('hazel', 'expense.setBudgetLine', { id: a.id, budget_line_id: line.id });
+    const b = call('hazel', 'budget.get', { project_id: project.id });
+    assert.strictEqual(b.unlinkedExpenses.length, 0);
+    assert.strictEqual(b.lines[0].expense_actual, 30000);
+    assert.strictEqual(b.expenses.length, 1);
+    assert.strictEqual(call('amy', 'expense.list', { scope: 'mine' })[0].budget_line_label, line.category + '／' + line.item);
+    const other = call('hazel', 'project.create', { record: { name: '別的案子' } }).project;
+    const otherLine = call('hazel', 'budget.addLine', { project_id: other.id, record: { category: line.category, item: '別的' } });
+    assert.throws(() => call('acc', 'expense.setBudgetLine', { id: a.id, budget_line_id: otherLine.id }), /不屬於/);
+    call('acc', 'expense.setBudgetLine', { id: a.id, budget_line_id: null });
+    assert.strictEqual(call('hazel', 'budget.get', { project_id: project.id }).unlinkedExpenses.length, 1);
+  });
+
   test('[請款] 規則：不能核自己的、只有直屬主管能核、退回要寫原因、送出後不能改、會計以外不能付款', ({ call }) => {
     const { project } = setup(call);
     const d = call('mgr', 'expense.create', { record: { project_id: project.id, category: '餐費', description: '便當', amount: 1500 } });

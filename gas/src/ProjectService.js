@@ -33,6 +33,7 @@ const ProjectService = {
   },
 
   present(ctx, project) {
+    project = withClientId_(project);
     if (this.canSeeFinance(ctx, project)) return project;
     const c = Object.assign({}, project);
     PROJECT_FINANCE_FIELDS_.forEach(f => { delete c[f]; });
@@ -72,7 +73,7 @@ const ProjectService = {
    */
   create(data, ctx, options) {
     // 管理者帳號不當 PM：管理者建專案時 PM 先空白，由同仁指派
-    const record = Object.assign({ stage: '規劃中', pm_account: ctx.role === ROLES.ADMIN ? null : ctx.account }, data);
+    const record = syncClientName_(Object.assign({ stage: '規劃中', pm_account: ctx.role === ROLES.ADMIN ? null : ctx.account }, data));
     assertPmNotAdmin_(record.pm_account);
     if ('project_type' in record) record.project_type = normalizeProjectType_(record.project_type);
     if (record.start_date && record.end_date) assertDateRange_(record.start_date, record.end_date);
@@ -131,6 +132,7 @@ const ProjectService = {
       const repo = repo_('projects');
       const snapshot = loadCurrentForWrite_(repo, id, expected);
       if ('project_type' in patch) patch = Object.assign({}, patch, { project_type: normalizeProjectType_(patch.project_type) });
+      if ('client_id' in patch) patch = syncClientName_(Object.assign({}, patch));
       if ('pm_account' in patch) assertPmNotAdmin_(patch.pm_account);
       const finance = PROJECT_FINANCE_FIELDS_.filter(f => f in patch);
       if (finance.length && !this.canSeeFinance(ctx, snapshot.record)) {
@@ -364,6 +366,27 @@ function taskLight_(task, today) {
   const last = String(task.last_update_at || task.updated_at || '').slice(0, 10);
   if (last && daysBetween_(last, today) >= Number(setting_('remind_stale_days'))) return '久未更新';
   return '正常';
+}
+
+/**
+ * 專案只有一個「客戶」欄（選客戶主檔）；client_name 跟著客戶名稱走，列表、搜尋、AI 文件用。
+ * 清掉客戶時名稱也清掉。
+ */
+function syncClientName_(record) {
+  if (!('client_id' in record)) return record;
+  if (!record.client_id) { record.client_name = null; return record; }
+  const client = repo_('clients').findById(record.client_id);
+  if (!client) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到這個客戶，請重新整理');
+  record.client_name = client.name;
+  return record;
+}
+
+/** 舊資料（搬過來的、標案轉的）只有客戶名稱：同名的客戶主檔自動對上，表單打開就是選好的。 */
+function withClientId_(project) {
+  if (project.client_id || !project.client_name) return project;
+  const key = normName_(project.client_name);
+  const c = repo_('clients').findAll().find(x => normName_(x.name) === key);
+  return c ? Object.assign({}, project, { client_id: c.id }) : project;
 }
 
 function daysBetween_(fromIso, toIso) {

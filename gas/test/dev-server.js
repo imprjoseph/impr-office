@@ -41,6 +41,9 @@ const line = call('hazel', 'budget.addLine', { project_id: a.id, record: { categ
 call('hazel', 'budget.addChange', { project_id: a.id, record: { kind: '增項', description: '加開同步口譯', quote_delta: 60000, cost_delta: 52000 } });
 const e1 = call('amy', 'expense.create', { record: { project_id: a.id, budget_line_id: line.id, category: '設備租借', description: '追加無線麥克風', amount: 12000 } });
 call('amy', 'expense.submit', { id: e1.id, expectedUpdatedAt: e1.updated_at });
+{ const e2 = call('amy', 'expense.create', { record: { project_id: a.id, category: '交通', description: '場勘計程車', amount: 680 } });
+  const s2 = call('amy', 'expense.submit', { id: e2.id, expectedUpdatedAt: e2.updated_at });
+  call('mgr', 'expense.approve', { id: s2.id, expectedUpdatedAt: s2.updated_at }); }
 call('hazel', 'tender.create', { record: { title: '2027 防詐宣導整合行銷', agency: '電信協會', budget_amount: 2400000, deadline_date: day(9), opening_date: day(12) } });
 call('hazel', 'dispatch.assign', { record: { account: 'pt1', project_id: b.id, start_date: day(0), end_date: day(21), role: '報到台', hourly_wage: 200 } });
 const item = call('hazel', 'inventory.create', { record: { name: '無線麥克風', category: '錄音設備', quantity: 8, unit: '支', location: '倉庫 A', manager_account: 'hazel' } });

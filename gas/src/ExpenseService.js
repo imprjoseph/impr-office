@@ -87,6 +87,26 @@ const ExpenseService = {
     });
   },
 
+  /**
+   * 改這筆費用對沖哪個預算科目：專案 PM 或財務角色可以改，任何狀態都行（已核准的費用常常事後才歸科目）。
+   * 只改科目、不動金額與狀態，所以不比對 expectedUpdatedAt；改完重算專案毛利。
+   */
+  setBudgetLine(id, lineId, ctx) {
+    return withScriptLock_(() => {
+      const repo = repo_('expense_claims');
+      const e = repo.findById(id);
+      if (!e) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到這筆請款');
+      if (!e.project_id) throw new AppError(ERROR_CODES.VALIDATION, '這筆請款沒有掛專案，不能指定預算科目');
+      const project = repo_('projects').findById(e.project_id);
+      if (!project || !ProjectService.canSeeFinance(ctx, project)) throw new AppError(ERROR_CODES.FORBIDDEN, '只有專案 PM 或財務角色可以指定預算科目');
+      assertExpense_(Object.assign({}, e, { budget_line_id: lineId }));
+      const saved = repo.updateMany({ [id]: { budget_line_id: lineId } }, ctx.account)[0];
+      BudgetService.recalc(e.project_id, ctx.account);
+      audit_(ctx, 'expense.setBudgetLine', 'expense_claims', id, { from: e.budget_line_id || null, to: lineId });
+      return saved;
+    });
+  },
+
   /** scope：mine 我的、approve 待我核准、pay 待付款（會計）、all 全部（財務角色）。 */
   list(scope, ctx) {
     const rows = repo_('expense_claims').findAll();
@@ -102,7 +122,10 @@ const ExpenseService = {
       requireRole_(ctx, FINANCE_ROLES_, '查看全部請款');
       out = rows;
     } else throw new AppError(ERROR_CODES.VALIDATION, '未知的範圍：' + scope);
-    return sortBy_(out, 'created_at').reverse();
+    // 附上對沖的預算科目名稱（科目名稱不算機密，金額不帶）
+    const lines = indexBy_(repo_('budget_lines').findAll(), 'id');
+    return sortBy_(out, 'created_at').reverse().map(e => e.budget_line_id && lines[e.budget_line_id]
+      ? Object.assign({}, e, { budget_line_label: lines[e.budget_line_id].category + '／' + lines[e.budget_line_id].item }) : e);
   },
 };
 
@@ -132,6 +155,8 @@ function expenseRoutes_() {
       const a = updateArgs_(p, EXPENSE_FIELDS_, '請款');
       return ExpenseService.update(a.id, a.expected, a.patch, ctx);
     } },
+    'expense.setBudgetLine': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      ExpenseService.setBudgetLine(requireString_(p, 'id'), p.budget_line_id ? String(p.budget_line_id) : null, ctx) },
     'expense.submit': { roles: INTERNAL_ROLES_, handler: (p, ctx) => ExpenseService.submit(...idArgs(p), ctx) },
     'expense.approve': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) => ExpenseService.review(...idArgs(p), true, p.note, ctx) },
     'expense.reject': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) => ExpenseService.review(...idArgs(p), false, p.note, ctx) },

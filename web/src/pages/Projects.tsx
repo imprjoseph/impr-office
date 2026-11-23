@@ -7,8 +7,7 @@ export const PROJECT_TYPES = ["論壇", "研討會", "記者會", "展覽", "典
 
 const PROJECT_FIELDS: Field[] = [
   { name: "name", label: "專案名稱", required: true, full: true },
-  { name: "client_id", label: "客戶", type: "client" },
-  { name: "client_name", label: "客戶／主辦單位（顯示名稱）" },
+  { name: "client_id", label: "客戶", type: "client", hint: "清單裡沒有的客戶，請先到「資源 → 客戶」新增" },
   { name: "project_type", label: "活動類型", type: "select", options: PROJECT_TYPES, hint: "依類型代入參考工作項目" },
   { name: "venue", label: "地點" },
   { name: "start_date", label: "活動日期", type: "date", hint: "套用範本時，工作截止日以這天為 T 日" },
@@ -472,11 +471,18 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
           { key: "cost_delta", label: "成本變動", num: true, render: c => money(c.cost_delta) },
         ]} />
       </>}
-      {b.data.unlinkedExpenses.length > 0 && <>
-        <h3>沒掛科目的費用</h3>
-        <Table rows={b.data.unlinkedExpenses} columns={[
-          { key: "description", label: "內容" }, { key: "claimant", label: "申請人", render: e => lk.nameOf(e.claimant_account) },
+      {b.data.expenses.length > 0 && <>
+        <h3>已核准的費用 <span className="muted small">{b.data.unlinkedExpenses.length ? b.data.unlinkedExpenses.length + " 筆還沒指定對沖科目" : "都已指定對沖科目"}</span></h3>
+        <p className="muted small">每筆費用可以指定對沖哪個預算科目，改了馬上重算毛利。沒指定的另外算進目前成本。</p>
+        <Table rows={b.data.expenses} columns={[
+          { key: "description", label: "內容", render: e => <><b>{e.description}</b><small className="muted block">{e.category}・{lk.nameOf(e.claimant_account)}{e.receipt_date ? "・" + shortDate(e.receipt_date) : ""}</small></> },
           { key: "amount", label: "金額", num: true, render: e => money(e.amount) },
+          { key: "line", label: "對沖科目", render: e => (
+            <select value={e.budget_line_id || ""} disabled={busy} aria-label="對沖科目" className={e.budget_line_id ? "" : "warn"}
+              onChange={async ev => { const r = await run(() => call("expense.setBudgetLine", { id: e.id, budget_line_id: ev.target.value || null }), "已更新對沖科目，毛利已重算"); if (r) done(); }}>
+              <option value="">（未指定）</option>
+              {b.data.lines.map((l: any) => <option key={l.id} value={l.id}>{l.category}／{l.item}</option>)}
+            </select>) },
         ]} />
       </>}
       {editing !== undefined && (

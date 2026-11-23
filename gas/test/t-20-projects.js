@@ -159,6 +159,17 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(call('hazel', 'task.addFromTemplates', { project_id: project.id, template_ids: ids }).length, 0);
     assert.ok(added.every(t => t.owner_account === 'hazel' && t.note));
   });
+  test('[專案] 只有一個客戶欄：選客戶自動帶名稱、清掉也清名稱；舊資料只有名稱時自動對上同名客戶', ({ call, app }) => {
+    const c = call('hazel', 'client.create', { record: { name: '數位發展部' } });
+    const p = call('hazel', 'project.create', { record: { name: '數位論壇', client_id: c.id } }).project;
+    assert.strictEqual(p.client_name, '數位發展部');
+    const cleared = call('hazel', 'project.update', { id: p.id, expectedUpdatedAt: p.updated_at, patch: { client_id: null } });
+    assert.strictEqual(cleared.client_name, null);
+    const old = app.withScriptLock_(() => app.repo_('projects').insert({ code: 'X-1', name: '舊案', stage: '規劃中', client_name: '數位 發展部' }, 'boss'));
+    assert.strictEqual(call('hazel', 'project.get', { id: old.id }).project.client_id, c.id);
+    assert.throws(() => call('hazel', 'project.create', { record: { name: '亂客戶', client_id: 'cli_nope' } }), /找不到這個客戶/);
+  });
+
   test('[專案] PM 不能是管理者：管理者建專案時 PM 空白；指派管理者當 PM 擋下；同仁建的預設自己', ({ call }) => {
     call('boss', 'people.sync');
     const a = call('boss', 'project.create', { record: { name: '管理者建的' } }).project;
