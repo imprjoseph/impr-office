@@ -264,7 +264,8 @@ function webSources_(content) {
 // ---------------- 每日提醒與主管週報 ----------------
 
 /**
- * 每天早上由排程觸發：每人一封待辦摘要（逾期、卡關、即將到期、久未更新）。
+ * 每天早上由排程觸發：每人一封待辦摘要（逾期、卡關、即將到期、久未更新），
+ * 加上自己保管、該保養的資材（逾期、7 天內到期、從沒保養過）。
  * 同一件工作提醒後隔 remind_cooldown_days 天才再提醒；逾期超過 escalate_overdue_days 天副本給主管。
  */
 function runDailyReminders() {
@@ -282,13 +283,24 @@ function runDailyReminders() {
     if (light === '正常' || recent[t.owner_account + '|' + t.id]) return;
     (byOwner[t.owner_account] = byOwner[t.owner_account] || []).push(Object.assign({}, t, { light, project_name: open[t.project_id].name }));
   });
+  // 待保養資材寄給保管人（沒指定保管人的在系統的「保養檔」看得到，不寄）
+  const maintByOwner = {};
+  InventoryService.list().forEach(i => {
+    if (!i.maint_status || i.maint_status === '正常' || !i.manager_account || recent[i.manager_account + '|' + i.id]) return;
+    (maintByOwner[i.manager_account] = maintByOwner[i.manager_account] || []).push(i);
+  });
   const logs = [];
   let sent = 0;
-  Object.keys(byOwner).forEach(account => {
+  Object.keys(Object.assign({}, byOwner, maintByOwner)).forEach(account => {
     const person = people[account];
     if (!person || !person.email) return;
-    const tasks = byOwner[account];
-    const plain = tasks.map(t => '・[' + t.light + '] ' + t.project_name + '／' + t.title + (t.due_date ? '（截止 ' + t.due_date + '）' : '') + (t.next_step ? '　下一步：' + t.next_step : '')).join('\n');
+    const tasks = byOwner[account] || [];
+    const maint = maintByOwner[account] || [];
+    const taskText = tasks.map(t => '・[' + t.light + '] ' + t.project_name + '／' + t.title + (t.due_date ? '（截止 ' + t.due_date + '）' : '') + (t.next_step ? '　下一步：' + t.next_step : '')).join('\n');
+    const maintText = maint.map(i => '・[' + (i.maint_status === '逾期' ? '保養逾期' : i.maint_status === '即將到期' ? '即將保養' : '未保養過') + '] ' +
+      i.name + (i.code ? '（' + i.code + '）' : '') + (i.next_maint_date ? '　下次保養 ' + i.next_maint_date : '') +
+      (i.maintenance_note ? '　項目：' + i.maintenance_note : '') + (i.location ? '　地點：' + i.location : '')).join('\n');
+    const plain = [taskText, maintText ? '你保管的資材需要保養：\n' + maintText : ''].filter(Boolean).join('\n\n');
     let summary = '';
     try {
       summary = AiService.callClaude_(CLAUDE_SUMMARY_MODEL_, '你是專案助理。用繁體中文寫 3 句以內的今日重點提醒：先講最急的，語氣友善具體，不要條列、不要客套。',
@@ -301,14 +313,17 @@ function runDailyReminders() {
     MailApp.sendEmail({
       to: person.email,
       cc: worst.length && manager && manager.email ? manager.email : undefined,
-      subject: '【imPR】今日待辦提醒：' + tasks.length + ' 件需要注意',
-      body: (summary ? summary + '\n\n' : '') + plain + '\n\n請到公司系統更新狀態、最新進度與下一步。',
+      subject: '【imPR】今日待辦提醒：' + [tasks.length ? tasks.length + ' 件工作' : '', maint.length ? maint.length + ' 項資材要保養' : ''].filter(Boolean).join('、') + '需要注意',
+      body: (summary ? summary + '\n\n' : '') + plain + '\n\n' +
+        [tasks.length ? '請到公司系統更新狀態、最新進度與下一步。' : '', maint.length ? '保養完請到「資材 → 保養檔」登記。' : ''].filter(Boolean).join(''),
     });
     sent++;
     tasks.forEach(t => logs.push({ account, ref_id: t.id, reason: t.light, sent_on: today }));
+    maint.forEach(i => logs.push({ account, ref_id: i.id, reason: '保養' + i.maint_status, sent_on: today }));
   });
   withScriptLock_(() => repo_('reminder_log').insertMany(logs, 'system'));
-  return { sent, tasks: logs.length };
+  return { sent, tasks: logs.length - Object.keys(maintByOwner).reduce((n, a) => n + maintByOwner[a].length, 0),
+    maintenance: Object.keys(maintByOwner).reduce((n, a) => n + maintByOwner[a].length, 0) };
 }
 
 /** 每週五寄給 admin 與主管：專案燈號、毛利警示、待審項目、各人逾期件數。 */

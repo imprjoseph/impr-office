@@ -88,6 +88,20 @@ module.exports = (test, { assert }) => {
     assert.doesNotMatch(mails[0].body, /還早/);
     assert.strictEqual(app.runDailyReminders().sent, 0);
   });
+  test('[提醒] 每日提醒：保管的資材該保養也寄給保管人；冷卻期內不重寄；沒保管人不寄', ({ app, call, mails }) => {
+    call('boss', 'people.sync');
+    call('hazel', 'inventory.create', { record: { name: '投影機', code: 'P-1', quantity: 1, category: '投影簡報', manager_account: 'amy', needs_maintenance: true, maintenance_cycle_days: 30, maintenance_note: '清濾網' } });
+    call('hazel', 'inventory.create', { record: { name: '無人保管', quantity: 1, category: '投影簡報', needs_maintenance: true } });
+    const ok = call('hazel', 'inventory.create', { record: { name: '剛保養', quantity: 1, category: '投影簡報', manager_account: 'amy', needs_maintenance: true, maintenance_cycle_days: 30 } });
+    call('amy', 'maintenance.add', { record: { inventory_id: ok.id, kind: '定期保養', content: '清潔' } });
+    const r = app.runDailyReminders();
+    assert.deepStrictEqual([r.sent, r.maintenance], [1, 1]);
+    assert.strictEqual(mails[0].to, 'amy@impr.com.tw');
+    assert.match(mails[0].subject, /1 項資材要保養/);
+    assert.match(mails[0].body, /未保養過\] 投影機（P-1）.*清濾網/);
+    assert.doesNotMatch(mails[0].body, /剛保養|無人保管/);
+    assert.strictEqual(app.runDailyReminders().sent, 0);
+  });
   test('[AI] 平面設計：Claude 寫文案與 GPT 提示詞；再把提示詞交給 GPT 出圖，尺寸依比例換算並記用量', (env) => {
     const { call, properties, aiCalls } = env;
     properties.ANTHROPIC_API_KEY = 'test-key';
