@@ -73,6 +73,7 @@ export function Mine({ api = "attendance." }: { api?: string }) {
           <button className="btn big" disabled={busy} onClick={() => punch("OUT")}>下班打卡</button>
         </div>
       </div>}
+      {api === "attendance." && <ThisDevice ip={ip} />}
       <div className="toolbar">
         <input type="month" value={month} onChange={e => setMonth(e.target.value)} aria-label="月份" />
         <span className="spacer" />
@@ -190,5 +191,47 @@ function Monthly() {
         { key: "leaveHours", label: "請假時數", num: true }, { key: "overtimeHours", label: "加班時數", num: true },
       ]} />}
     </>
+  );
+}
+
+/**
+ * 這台設備：目前的對外 IP、設備識別碼，以及打卡會不會算辦公室。
+ * 公司 IP 設定：管理者在公司網路的每台打卡電腦上按「設為公司 IP」「登記這台設備」即可。
+ */
+function ThisDevice({ ip }: { ip: string }) {
+  const lk = useLookups();
+  const key = deviceKey();
+  const w = useLoad<any>(ip ? "attendance.whereAmI" : null, { ip, device_key: key }, [ip]);
+  const { busy, run } = useAction();
+  const [open, setOpen] = useState(false);
+  const admin = lk.can("admin");
+  const addIp = async () => {
+    if (!confirm("把 " + ip + " 設為公司 IP？\n請確認這台電腦現在連的是公司網路（不是手機熱點或家裡）。")) return;
+    const r = await run(() => call("attendance.addOfficeIp", { ip }), "已加入公司 IP");
+    if (r) w.reload();
+  };
+  const register = async () => {
+    const name = prompt("幫這台設備取個名字（例如：櫃台桌機、Hazel 筆電）", w.data?.device_name || "");
+    if (!name) return;
+    const r = await run(() => call("attendance.registerDevice", { device_key: key, name }), "已登記這台設備");
+    if (r) w.reload();
+  };
+  const d = w.data;
+  if (!ip) return <p className="muted small">這台設備：抓不到對外 IP（可能被網路擋住），打卡會算出差。</p>;
+  return (
+    <div className="card small">
+      <button type="button" className="linkish" onClick={() => setOpen(!open)}>
+        這台設備：{d ? (d.office ? <Badge text="辦公室打卡" tone="green" /> : <Badge text="會算出差打卡" tone="yellow" />) : "檢查中…"} {open ? "▲" : "▼"}
+      </button>
+      {open && d && <div style={{ marginTop: 8 }}>
+        <p>對外 IP：<b>{d.ip}</b> {d.ip_ok ? <Badge text="是公司 IP" tone="green" /> : <Badge text={d.office_ips_count ? "不是公司 IP" : "還沒設定公司 IP"} tone="red" />}</p>
+        <p>設備：{d.device_ok ? <><Badge text="已登記" tone="green" /> {d.device_name}</> : <Badge text="未登記" tone="red" />}　<small className="muted">識別碼 {key}</small></p>
+        {!d.office && <p className="muted">辦公室打卡要「公司 IP」和「已登記設備」兩個都符合。{admin ? "" : "請管理者在這台電腦上幫你設定。"}</p>}
+        {admin && <div className="page-actions">
+          {!d.ip_ok && <button className="btn small" disabled={busy} onClick={addIp}>把 {d.ip} 設為公司 IP</button>}
+          {!d.device_ok && <button className="btn small primary" disabled={busy} onClick={register}>登記這台設備</button>}
+        </div>}
+      </div>}
+    </div>
   );
 }

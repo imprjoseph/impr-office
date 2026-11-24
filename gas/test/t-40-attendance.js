@@ -36,6 +36,23 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(call('mgr', 'attendance.reviewTrips', { ids: [trip.record.id], approve: true }), 1);
   });
 
+  test('[考勤] 公司 IP 設定：考勤頁看得到目前 IP 與設備狀態；只有管理者能一鍵加 IP、登記設備；兩個都對才算辦公室', ({ call }) => {
+    call('boss', 'people.sync');
+    const key = 'dev-12345678-abcd';
+    let w = call('amy', 'attendance.whereAmI', { ip: '61.1.1.1', device_key: key });
+    assert.deepStrictEqual([w.ip_ok, w.device_ok, w.office], [false, false, false]);
+    assert.throws(() => call('amy', 'attendance.addOfficeIp', { ip: '61.1.1.1' }), /權限/);
+    assert.throws(() => call('boss', 'attendance.addOfficeIp', { ip: 'abc' }), /抓不到/);
+    call('boss', 'attendance.addOfficeIp', { ip: '61.1.1.1' });
+    assert.deepStrictEqual(call('boss', 'attendance.addOfficeIp', { ip: '61.1.1.2' }).office_ips, ['61.1.1.1', '61.1.1.2']);
+    assert.throws(() => call('boss', 'attendance.registerDevice', { device_key: key }), /取個名字/);
+    call('boss', 'attendance.registerDevice', { device_key: key, name: '櫃台桌機' });
+    call('boss', 'attendance.registerDevice', { device_key: key, name: '櫃台桌機 2' });
+    w = call('amy', 'attendance.whereAmI', { ip: '61.1.1.1', device_key: key });
+    assert.deepStrictEqual([w.ip_ok, w.device_ok, w.office, w.device_name], [true, true, true, '櫃台桌機 2']);
+    assert.strictEqual(call('amy', 'attendance.punch', { punch: 'IN', ip: '61.1.1.1', device_key: key }).record.mode, 'OFFICE');
+  });
+
   test('[考勤] 加班事前申請 → 主管核准 → 下班打卡算時數 → 可請補休，不能超額', ({ app, call }) => {
     setup(app, call);
     at(app, '2026-11-18T08:50:00Z');

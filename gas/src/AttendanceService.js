@@ -242,8 +242,52 @@ function tripFields_(input) {
   };
 }
 
+/**
+ * 「這台設備」狀態：考勤頁顯示目前的對外 IP、設備識別碼，以及是否會算辦公室打卡。
+ * 管理者可以一鍵把目前 IP 加進辦公室 IP、把這台設備登記成打卡設備（公司 IP 設定就是這兩步）。
+ */
+function officeIps_() {
+  return String(setting_('office_ips') || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+
+function whereAmI_(ip, deviceKey) {
+  const ips = officeIps_();
+  const device = deviceKey ? repo_('devices').findAll().find(d => d.device_key === deviceKey) : null;
+  const ipOk = !!ip && ips.indexOf(ip) !== -1;
+  const deviceOk = !!device && device.active !== false;
+  return { ip: ip || null, device_key: deviceKey || null, ip_ok: ipOk, device_ok: deviceOk, device_name: device ? device.name : null,
+    office_ips_count: ips.length, office: ipOk && deviceOk };
+}
+
+function addOfficeIp_(ip, ctx) {
+  const v = String(ip || '').trim();
+  if (!/^(\d{1,3}\.){3}\d{1,3}$|^[0-9a-f]*:[0-9a-f:]+$/i.test(v)) throw new AppError(ERROR_CODES.VALIDATION, '抓不到這台電腦的對外 IP，請確認網路後重新整理');
+  return withScriptLock_(() => {
+    const repo = repo_('settings');
+    const row = repo.findAll().find(s => s.key === 'office_ips');
+    const ips = officeIps_();
+    if (ips.indexOf(v) === -1) ips.push(v);
+    if (row) repo.updateMany({ [row.id]: { value: ips.join(',') } }, ctx.account);
+    else repo.insert({ key: 'office_ips', value: ips.join(','), note: '辦公室對外 IP' }, ctx.account);
+    audit_(ctx, 'settings.office_ips', 'settings', row ? row.id : null, { added: v });
+    return { office_ips: ips };
+  });
+}
+
+function registerDevice_(deviceKey, name, ctx) {
+  const key = String(deviceKey || '').trim();
+  if (!/^dev-[\w-]{8,}$/.test(key)) throw new AppError(ERROR_CODES.VALIDATION, '設備識別碼格式不對，請在要登記的設備上操作');
+  if (!String(name || '').trim()) throw new AppError(ERROR_CODES.VALIDATION, '請幫這台設備取個名字，例如「櫃台桌機」');
+  return withScriptLock_(() => {
+    const repo = repo_('devices');
+    const hit = repo.findAll().find(d => d.device_key === key);
+    if (hit) return repo.updateMany({ [hit.id]: { active: true, name: String(name).trim() } }, ctx.account)[0];
+    return repo.insert({ device_key: key, name: String(name).trim(), registered_by: ctx.account, active: true }, ctx.account);
+  });
+}
+
 function judgeMode_(deviceKey, ip) {
-  const ips = String(setting_('office_ips') || '').split(',').map(x => x.trim()).filter(Boolean);
+  const ips = officeIps_();
   const ipOk = !!ip && ips.indexOf(ip) !== -1;
   const deviceOk = !!deviceKey && repo_('devices').findAll().some(d => d.device_key === deviceKey && d.active !== false);
   return ipOk && deviceOk ? PUNCH_MODES_.OFFICE : PUNCH_MODES_.TRIP;
@@ -428,6 +472,9 @@ function selfAttendanceRoutes_(prefix, roles) {
 function attendanceRoutes_() {
   const idArgs = p => [requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt')];
   return {
+    'attendance.whereAmI': { roles: INTERNAL_ROLES_, handler: p => whereAmI_(p.ip || null, p.device_key || null) },
+    'attendance.addOfficeIp': { roles: [ROLES.ADMIN], handler: (p, ctx) => addOfficeIp_(requireString_(p, 'ip'), ctx) },
+    'attendance.registerDevice': { roles: [ROLES.ADMIN], handler: (p, ctx) => registerDevice_(requireString_(p, 'device_key'), p.name, ctx) },
     'attendance.options': { roles: INTERNAL_ROLES_, handler: () => ({ tripReasons: TRIP_REASONS, leaveTypes: LEAVE_TYPES, flags: FLAG_LABELS }) },
     'attendance.punch': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       AttendanceService.punch(pickAllowed_(p, ['punch', 'ip', 'device_key', 'location', 'reason', 'reason_note', 'lat', 'lng'], '打卡'), ctx) },
