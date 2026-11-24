@@ -36,7 +36,7 @@ call('hazel', 'project.create', { record: { name: '2027 醫學年會', client_na
 const tasks = call('hazel', 'project.get', { id: a.id }).tasks;
 call('hazel', 'task.update', { id: tasks[0].id, expectedUpdatedAt: tasks[0].updated_at, patch: { status: '已完成' } });
 call('hazel', 'task.update', { id: tasks[3].id, expectedUpdatedAt: tasks[3].updated_at, patch: { status: '卡關', blocker: '部長行程未定', next_step: '週三前再確認' } });
-call('hazel', 'budget.addLine', { project_id: a.id, record: { category: '場地', item: '國際會議廳', quote_amount: 300000, cost_estimate: 220000 } });
+call('hazel', 'budget.addLine', { project_id: a.id, record: { category: '場地', item: '國際會議廳', spec: '全日', description: '含舞台、桌椅、場地清潔', unit_price: 150000, quantity: 2, unit: '天', discount_price: 280000, cost_estimate: 220000 } });
 const line = call('hazel', 'budget.addLine', { project_id: a.id, record: { category: '硬體設備', item: '音響燈光', quote_amount: 250000, cost_estimate: 180000, supplier_id: sup.id } });
 call('hazel', 'budget.addChange', { project_id: a.id, record: { kind: '增項', description: '加開同步口譯', quote_delta: 60000, cost_delta: 52000 } });
 const e1 = call('amy', 'expense.create', { record: { project_id: a.id, budget_line_id: line.id, category: '設備租借', description: '追加無線麥克風', amount: 12000 } });

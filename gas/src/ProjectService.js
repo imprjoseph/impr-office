@@ -16,7 +16,8 @@ const TASK_CATEGORIES = ['合約行政', '整體時程', '視覺設計', '網站
   '撤場場復', '驗收結案', '招商贊助'];
 
 const PROJECT_FIELDS_ = ['name', 'client_id', 'client_name', 'project_type', 'venue', 'start_date', 'end_date',
-  'pm_account', 'contract_amount', 'margin_threshold', 'drive_folder_url', 'success_notes', 'improve_notes'];
+  'pm_account', 'contract_amount', 'margin_threshold', 'drive_folder_url', 'success_notes', 'improve_notes',
+  'client_contact', 'client_contact_title', 'client_contact_info'];
 // 合約金額、毛利門檻是財務欄位；彙總欄位（quote_total…margin_rate）只能由預算重算寫入。
 const PROJECT_FINANCE_FIELDS_ = ['contract_amount', 'margin_threshold', 'margin_alert', 'quote_total',
   'cost_estimate_total', 'cost_actual_total', 'margin_rate'];
@@ -73,7 +74,7 @@ const ProjectService = {
    */
   create(data, ctx, options) {
     // 管理者帳號不當 PM：管理者建專案時 PM 先空白，由同仁指派
-    const record = syncClientName_(Object.assign({ stage: '規劃中', pm_account: ctx.role === ROLES.ADMIN ? null : ctx.account }, data));
+    const record = fillClientContact_(syncClientName_(Object.assign({ stage: '規劃中', pm_account: ctx.role === ROLES.ADMIN ? null : ctx.account }, data)), null);
     assertPmNotAdmin_(record.pm_account);
     if ('project_type' in record) record.project_type = normalizeProjectType_(record.project_type);
     if (record.start_date && record.end_date) assertDateRange_(record.start_date, record.end_date);
@@ -133,6 +134,7 @@ const ProjectService = {
       const snapshot = loadCurrentForWrite_(repo, id, expected);
       if ('project_type' in patch) patch = Object.assign({}, patch, { project_type: normalizeProjectType_(patch.project_type) });
       if ('client_id' in patch) patch = syncClientName_(Object.assign({}, patch));
+      if ('client_contact' in patch) patch = fillClientContact_(Object.assign({}, patch), snapshot.record);
       if ('pm_account' in patch) assertPmNotAdmin_(patch.pm_account);
       const finance = PROJECT_FINANCE_FIELDS_.filter(f => f in patch);
       if (finance.length && !this.canSeeFinance(ctx, snapshot.record)) {
@@ -381,6 +383,31 @@ function syncClientName_(record) {
   return record;
 }
 
+/**
+ * 客戶窗口：從客戶的主要窗口或聯絡人選（也可以直接打名字）。選到已知的人而職稱、聯絡方式沒填，就自動帶入。
+ */
+function clientContacts_(clientId) {
+  if (!clientId) return [];
+  const c = repo_('clients').findById(clientId);
+  const out = [];
+  if (c && c.contact_name) out.push({ name: c.contact_name, title: c.contact_title || null,
+    info: [c.contact_mobile, c.contact_phone, c.contact_email].filter(Boolean).join('・') || null });
+  repo_('contacts').findWhere(x => x.client_id === clientId).forEach(x => {
+    if (!out.some(o => normName_(o.name) === normName_(x.name))) out.push({ name: x.name, title: x.title || null, info: [x.phone, x.email].filter(Boolean).join('・') || null });
+  });
+  return out;
+}
+
+function fillClientContact_(record, current) {
+  const m = Object.assign({}, current || {}, record);
+  if (!m.client_contact) return record;
+  const hit = clientContacts_(m.client_id).find(o => normName_(o.name) === normName_(m.client_contact));
+  if (!hit) return record;
+  if (!m.client_contact_title && hit.title) record.client_contact_title = hit.title;
+  if (!m.client_contact_info && hit.info) record.client_contact_info = hit.info;
+  return record;
+}
+
 /** 舊資料（搬過來的、標案轉的）只有客戶名稱：同名的客戶主檔自動對上，表單打開就是選好的。 */
 function withClientId_(project) {
   if (project.client_id || !project.client_name) return project;
@@ -396,6 +423,7 @@ function daysBetween_(fromIso, toIso) {
 function projectRoutes_() {
   const pickTask = (o, label) => pickAllowed_(o || {}, TASK_FIELDS_, label || '工作');
   return Object.assign({
+    'project.clientContacts': { roles: INTERNAL_ROLES_, handler: p => clientContacts_(p.client_id || null) },
     'project.options': { roles: INTERNAL_ROLES_, handler: () =>
       ({ stages: PROJECT_STAGES, statuses: TASK_STATUSES, priorities: TASK_PRIORITIES, categories: TASK_CATEGORIES }) },
     'project.list': { roles: INTERNAL_ROLES_, handler: (p, ctx) => ProjectService.list(ctx) },

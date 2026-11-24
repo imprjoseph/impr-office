@@ -172,3 +172,5 @@ pre.doc { white-space: pre-wrap; background: #fafbf9; border: 1px solid var(--li
   .punch-btns { width: 100%; }
   .punch-btns .btn { flex: 1; }
 }
+.quote-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.quote-head .page-actions { margin: 0; }

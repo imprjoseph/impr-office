@@ -73,6 +73,71 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(call('hazel', 'budget.get', { project_id: project.id }).unlinkedExpenses.length, 1);
   });
 
+  test('[報價單] 總價＝單價×數量、優惠價優先；送審後鎖住；主管核定後同仁只能填實際成本；主管退回才能改', ({ call }) => {
+    const { project } = setup(call);
+    const l = call('hazel', 'budget.addLine', { project_id: project.id, record: { category: '硬體設備', item: 'LED 螢幕', spec: '4x3m', description: '含架設', unit_price: 50000, quantity: 2, discount_price: 90000, cost_estimate: 70000 } });
+    assert.strictEqual(l.quote_amount, 90000);
+    const l2 = call('hazel', 'budget.updateLine', { id: l.id, expectedUpdatedAt: l.updated_at, patch: { discount_price: null } });
+    assert.strictEqual(l2.quote_amount, 100000);
+    let b = call('hazel', 'budget.get', { project_id: project.id });
+    assert.strictEqual(b.lines.find(x => x.id === l.id).list_total, 100000);
+    assert.strictEqual(b.quote.status, '草稿');
+    assert.throws(() => call('hazel', 'quote.approve', { project_id: project.id }), /權限|主管/);
+    call('hazel', 'quote.submit', { project_id: project.id });
+    assert.throws(() => call('hazel', 'budget.updateLine', { id: l.id, expectedUpdatedAt: l2.updated_at, patch: { unit_price: 1 } }), /送審中/);
+    assert.throws(() => call('mgr', 'quote.approve', { project_id: 'nope' }), /找不到/);
+    const q = call('mgr', 'quote.approve', { project_id: project.id });
+    assert.strictEqual(q.status, '已核定');
+    assert.strictEqual(q.approved_total, 200000);
+    assert.throws(() => call('hazel', 'budget.addLine', { project_id: project.id, record: { category: '雜支', item: '加一項' } }), /已經主管核定/);
+    assert.throws(() => call('hazel', 'budget.updateLine', { id: l.id, expectedUpdatedAt: l2.updated_at, patch: { cost_estimate: 1 } }), /已經主管核定/);
+    call('hazel', 'budget.updateLine', { id: l.id, expectedUpdatedAt: l2.updated_at, patch: { cost_actual: 5000, note: '訂金發票' } });
+    assert.throws(() => call('mgr', 'quote.return', { project_id: project.id }), /原因/);
+    call('mgr', 'quote.return', { project_id: project.id, note: '客戶要加場' });
+    b = call('hazel', 'budget.get', { project_id: project.id });
+    assert.deepStrictEqual([b.quote.status, b.quote.review_note], ['退回修改', '客戶要加場']);
+    call('hazel', 'budget.addLine', { project_id: project.id, record: { category: '雜支', item: '加一項' } });
+  });
+
+  test('[請款] 分次申請累加到科目；超過核定金額標示（草稿先預告）；同仁看不到數字；付款對象新增廠商、公司卡不用對象', ({ call, app }) => {
+    const { project, line } = setup(call); // 核定（預估成本）60000
+    const mk = (amount, extra) => call('amy', 'expense.create', { record: Object.assign({ project_id: project.id, budget_line_id: line.id, category: '設備租借', description: '第' + amount, amount }, extra || {}) });
+    const send = e => call('amy', 'expense.submit', { id: e.id, expectedUpdatedAt: e.updated_at });
+    const e1 = send(mk(40000, { payee: '公司卡支付' }));
+    assert.strictEqual(e1.supplier_id, null);
+    const d2 = mk(30000, { payee: '付給廠商' });
+    assert.throws(() => send(d2), /付款對象/);
+    const d2b = call('amy', 'expense.update', { id: d2.id, expectedUpdatedAt: d2.updated_at, patch: { payee_name: '新廠商音響行', payee_bank: '台銀 123' } });
+    let mine = call('amy', 'expense.list', { scope: 'mine' });
+    assert.deepStrictEqual(mine.find(x => x.id === d2.id).over_budget, { hidden: true, draft: true });
+    assert.strictEqual(mine.find(x => x.id === e1.id).over_budget, undefined);
+    const e2 = send(d2b);
+    const sup = app.repo_('suppliers').findById(e2.supplier_id);
+    assert.strictEqual(sup.name, '新廠商音響行');
+    assert.match(sup.note, /台銀 123/);
+    const pending = call('mgr', 'expense.list', { scope: 'approve' });
+    assert.deepStrictEqual(pending.find(x => x.id === e2.id).over_budget, { approved: 60000, claimed: 70000, over: 10000 });
+    assert.ok(!pending.find(x => x.id === e1.id).over_budget);
+    call('mgr', 'expense.approve', { id: e1.id, expectedUpdatedAt: e1.updated_at });
+    const b = call('hazel', 'budget.get', { project_id: project.id });
+    assert.strictEqual(b.lines[0].claimed, 70000);
+    assert.strictEqual(b.lines[0].expense_actual, 40000);
+    assert.strictEqual(b.pendingExpenses[0].over_budget.over, 10000);
+    // 同名的付款對象對到既有廠商，不重複新增
+    const d3 = send(mk(100, { payee: '付給廠商', payee_name: '新廠商 音響行' }));
+    assert.strictEqual(d3.supplier_id, e2.supplier_id);
+    assert.throws(() => mk(1, { payee: '亂填' }), /付款方式/);
+  });
+
+  test('[專案] 客戶窗口：從客戶主要窗口或聯絡人選，自動帶職稱與聯絡方式；也可以直接填', ({ call }) => {
+    const c = call('hazel', 'client.create', { record: { name: '衛福部', contact_name: '王科長', contact_title: '科長', contact_phone: '02-1234' } });
+    assert.deepStrictEqual(call('hazel', 'project.clientContacts', { client_id: c.id }).map(x => x.name), ['王科長']);
+    const p = call('hazel', 'project.create', { record: { name: '衛福論壇', client_id: c.id, client_contact: '王科長' } }).project;
+    assert.deepStrictEqual([p.client_contact_title, p.client_contact_info], ['科長', '02-1234']);
+    const p2 = call('hazel', 'project.create', { record: { name: '衛福論壇二', client_id: c.id, client_contact: '李小姐', client_contact_info: 'li@x.tw' } }).project;
+    assert.deepStrictEqual([p2.client_contact, p2.client_contact_info], ['李小姐', 'li@x.tw']);
+  });
+
   test('[請款] 規則：不能核自己的、只有直屬主管能核、退回要寫原因、送出後不能改、會計以外不能付款', ({ call }) => {
     const { project } = setup(call);
     const d = call('mgr', 'expense.create', { record: { project_id: project.id, category: '餐費', description: '便當', amount: 1500 } });

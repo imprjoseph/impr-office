@@ -9,14 +9,16 @@ const EXPENSE_STATUS = {
 };
 const EXPENSE_LABELS_ = { draft: '草稿', submitted: '待主管核准', approved: '待付款', paid: '已付款', rejected: '已退回' };
 const EXPENSE_FIELDS_ = ['project_id', 'budget_line_id', 'dept', 'category', 'description', 'amount', 'receipt_date',
-  'receipt_no', 'receipt_url', 'payee', 'supplier_id'];
+  'receipt_no', 'receipt_url', 'payee', 'supplier_id', 'payee_name', 'payee_bank'];
+// 付款方式：代墊（付給申請人）、付給廠商（選清單或直接填新的）、公司卡支付（不用付款對象）
+const EXPENSE_PAYEES_ = ['代墊（付給我）', '付給廠商', '公司卡支付'];
 const EXPENSE_CATEGORIES = ['交通', '餐費', '住宿', '印刷輸出', '設備租借', '採購', '郵電', '供應商款項', '講師費', '雜支'];
 
 const ExpenseService = {
   create(data, ctx) {
     return withScriptLock_(() => {
       assertExpense_(data);
-      return repo_('expense_claims').insert(Object.assign({}, data,
+      return repo_('expense_claims').insert(Object.assign({ receipt_date: todayIso_() }, data,
         { claimant_account: ctx.account, dept: data.dept || ctx.dept || null, status: EXPENSE_STATUS.DRAFT }), ctx.account);
     });
   },
@@ -40,13 +42,18 @@ const ExpenseService = {
     return this.transition_(id, expected, ctx, e => {
       if (e.claimant_account !== ctx.account) throw new AppError(ERROR_CODES.FORBIDDEN, '只有申請人可以送出');
       requireFrom_(e, [EXPENSE_STATUS.DRAFT, EXPENSE_STATUS.REJECTED]);
+      if (!e.receipt_date) throw new AppError(ERROR_CODES.VALIDATION, '請填費用日期');
+      const vendor = isVendorPayee_(e.payee);
+      if (vendor && !e.supplier_id && !e.payee_name) throw new AppError(ERROR_CODES.VALIDATION, '付給廠商請選廠商，或填付款對象名稱');
+      // 清單裡沒有的付款對象：同名的對上，沒有就新增一筆供應商，下次可以直接選
+      const supplierPatch = vendor && !e.supplier_id && e.payee_name ? { supplier_id: supplierForPayee_(e.payee_name, e.payee_bank, ctx) } : {};
       const me = PeopleService.byAccount(ctx.account);
-      return {
+      return Object.assign({
         status: EXPENSE_STATUS.SUBMITTED,
         submitted_at: nowIso_(),
         approver_account: (me && me.manager_account) || null,
         review_note: null,
-      };
+      }, supplierPatch);
     });
   },
 
@@ -122,10 +129,17 @@ const ExpenseService = {
       requireRole_(ctx, FINANCE_ROLES_, '查看全部請款');
       out = rows;
     } else throw new AppError(ERROR_CODES.VALIDATION, '未知的範圍：' + scope);
-    // 附上對沖的預算科目名稱（科目名稱不算機密，金額不帶）
-    const lines = indexBy_(repo_('budget_lines').findAll(), 'id');
-    return sortBy_(out, 'created_at').reverse().map(e => e.budget_line_id && lines[e.budget_line_id]
-      ? Object.assign({}, e, { budget_line_label: lines[e.budget_line_id].category + '／' + lines[e.budget_line_id].item }) : e);
+    // 附上對沖的預算科目名稱，以及是否超出科目核定金額（看得到該專案財務的人才看得到數字）
+    const allLines = repo_('budget_lines').findAll();
+    const lines = indexBy_(allLines, 'id');
+    const over = overBudgetByExpense_(rows, allLines);
+    const projects = indexBy_(repo_('projects').findAll(), 'id');
+    return sortBy_(out, 'created_at').reverse().map(e => {
+      const extra = {};
+      if (e.budget_line_id && lines[e.budget_line_id]) extra.budget_line_label = lines[e.budget_line_id].category + '／' + lines[e.budget_line_id].item;
+      if (over[e.id]) extra.over_budget = ProjectService.canSeeFinance(ctx, projects[e.project_id]) ? over[e.id] : { hidden: true, draft: !!over[e.id].draft };
+      return Object.keys(extra).length ? Object.assign({}, e, extra) : e;
+    });
   },
 };
 
@@ -135,8 +149,18 @@ function requireFrom_(e, statuses) {
   }
 }
 
+function isVendorPayee_(payee) { return payee === '付給廠商' || payee === '付給供應商'; }
+
+function supplierForPayee_(name, bank, ctx) {
+  const key = normName_(name);
+  const hit = repo_('suppliers').findAll().find(s => normName_(s.name) === key);
+  if (hit) return hit.id;
+  return repo_('suppliers').insert({ name: String(name).trim(), category: '其他', note: '請款時新增' + (bank ? '；匯款資料：' + bank : '') }, ctx.account).id;
+}
+
 function assertExpense_(e) {
   if (!(Number(e.amount) > 0)) throw new AppError(ERROR_CODES.VALIDATION, '金額必須大於 0');
+  if (e.payee && EXPENSE_PAYEES_.indexOf(e.payee) === -1 && e.payee !== '付給供應商') throw new AppError(ERROR_CODES.VALIDATION, '付款方式只能是：' + EXPENSE_PAYEES_.join('、'));
   if (e.budget_line_id) {
     const line = repo_('budget_lines').findById(e.budget_line_id);
     if (!line || line.project_id !== e.project_id) throw new AppError(ERROR_CODES.VALIDATION, '預算科目不屬於所選的專案');
@@ -148,6 +172,7 @@ function expenseRoutes_() {
   const idArgs = p => [requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt')];
   return {
     'expense.categories': { roles: INTERNAL_ROLES_, handler: () => EXPENSE_CATEGORIES },
+    'expense.payees': { roles: INTERNAL_ROLES_, handler: () => EXPENSE_PAYEES_ },
     'expense.list': { roles: INTERNAL_ROLES_, handler: (p, ctx) => ExpenseService.list(requireString_(p, 'scope'), ctx) },
     'expense.create': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       ExpenseService.create(pickAllowed_(p.record || {}, EXPENSE_FIELDS_, '請款'), ctx) },

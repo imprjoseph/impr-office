@@ -81,7 +81,12 @@ const TABLES = {
     'code!, name!, client_id, client_name, project_type, venue, start_date:date, end_date:date, ' +
     'pm_account, stage!, tender_id, contract_amount:num, margin_threshold:num, margin_alert:bool, ' +
     'quote_total:num, cost_estimate_total:num, cost_actual_total:num, margin_rate:num, ' +
-    'drive_folder_url, success_notes, improve_notes') },
+    'drive_folder_url, success_notes, improve_notes, ' +
+    // 客戶窗口（姓名、職稱、電話或 Email）
+    'client_contact, client_contact_title, client_contact_info, ' +
+    // 報價單審核：草稿 → 送審中 → 已核定（主管核定後鎖住，要改請主管退回成草稿）；退回 = 主管要求修改
+    'quote_status, quote_submitted_at:dt, quote_approved_by, quote_approved_at:dt, quote_review_note, ' +
+    'quote_approved_total:num, cost_approved_total:num, quote_date:date, quote_valid_until:date, quote_terms') },
   // 欄位對應追蹤表「工作進度」：每天只需更新狀態、最新進度、下一步、卡關原因。
   project_tasks: { prefix: 'tsk', cache: false, columns: cols_(
     'project_id!, code, category, title!, owner_account, assistant_account, start_date:date, due_date:date, ' +
@@ -98,7 +103,9 @@ const TABLES = {
   // ---- 預算、毛利、費用 ----
   budget_lines: { prefix: 'bdl', cache: false, columns: cols_(
     'project_id!, category!, item!, quote_amount:num, cost_estimate:num, cost_actual:num, supplier_id, ' +
-    'source, note') },
+    'source, note, ' +
+    // 報價單欄位：總價 = 單價 × 數量；quote_amount（對客戶的金額）= 優惠價，沒有優惠價就是總價
+    'spec, description, unit_price:num, quantity:num, unit, discount_price:num') },
   // 報價參考：公司估算單價（vendor_name 空白）與各廠商報價，做預算時帶入。
   price_refs: { prefix: 'prc', cache: false, columns: cols_(
     'item!, type, vendor_name, supplier_id, unit_price:num, unit, note, quoted_at:date, ' +
@@ -109,7 +116,9 @@ const TABLES = {
   expense_claims: { prefix: 'exp', cache: false, columns: cols_(
     'claimant_account!, project_id, budget_line_id, dept, category!, description!, amount:num!, ' +
     'receipt_date:date, receipt_no, receipt_url, payee, supplier_id, status!, submitted_at:dt, ' +
-    'approver_account, approved_at:dt, review_note, paid_by, paid_at:dt, pay_note') },
+    'approver_account, approved_at:dt, review_note, paid_by, paid_at:dt, pay_note, ' +
+    // 付款對象名稱（清單沒有的廠商申請時直接填，會自動加進供應商）與匯款資料；公司卡支付時不用填
+    'payee_name, payee_bank') },
 
   // ---- 考勤 ----
   // punch：IN 上班 / OUT 下班；punch_time 是台北時間 HH:mm:ss，遲到早退以它判斷。

@@ -1,20 +1,39 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { call } from "../api";
 import { Badge, Field, Loading, Modal, Page, RecordForm, Table, Tabs, money, pct, shortDate, useAction, useLoad, useLookups, useSaveQueue } from "../ui";
 
 // 活動類型：和後端 PROJECT_TYPES 一致（「頒獎典禮」已改為「典禮」）
 export const PROJECT_TYPES = ["論壇", "研討會", "記者會", "展覽", "典禮", "訪查", "媒體宣傳", "教育訓練", "尾牙", "其他"];
 
-const PROJECT_FIELDS: Field[] = [
+/** 客戶窗口的建議清單跟著選的客戶走（客戶的主要窗口＋聯絡人）。 */
+function useClientContacts(initialClientId?: string | null) {
+  const [clientId, setClientId] = useState<string | null>(initialClientId || null);
+  const [contacts, setContacts] = useState<any[]>([]);
+  useEffect(() => {
+    if (!clientId) { setContacts([]); return; }
+    let alive = true;
+    call<any[]>("project.clientContacts", { client_id: clientId }).then(r => { if (alive) setContacts(r); }).catch(() => setContacts([]));
+    return () => { alive = false; };
+  }, [clientId]);
+  return { contacts, setClientId };
+}
+
+function projectFields(contacts: any[]): Field[] {
+  return [
   { name: "name", label: "專案名稱", required: true, full: true },
   { name: "client_id", label: "客戶", type: "client", hint: "清單裡沒有的客戶，請先到「資源 → 客戶」新增" },
+  { name: "client_contact", label: "客戶窗口", type: "combo", options: contacts.map(c => [c.name, [c.title, c.info].filter(Boolean).join("・")] as [string, string]),
+    hint: contacts.length ? "可從客戶的聯絡人選，選了會自動帶職稱與聯絡方式；也可以直接打名字" : "直接打名字；客戶資料有聯絡人時可以用選的" },
+  { name: "client_contact_title", label: "窗口職稱" },
+  { name: "client_contact_info", label: "窗口電話／Email" },
   { name: "project_type", label: "活動類型", type: "select", options: PROJECT_TYPES, hint: "依類型代入參考工作項目" },
   { name: "venue", label: "地點" },
   { name: "start_date", label: "活動日期", type: "date", hint: "套用範本時，工作截止日以這天為 T 日" },
   { name: "end_date", label: "結束日期", type: "date" },
   { name: "pm_account", label: "PM", type: "person", filter: (p: any) => p.office_role !== "admin" && p.kind !== "派遣" },
   { name: "drive_folder_url", label: "專案資料夾網址", type: "url", full: true },
-];
+  ];
+}
 const FINANCE_FIELDS: Field[] = [
   { name: "contract_amount", label: "合約金額", type: "number" },
   { name: "margin_threshold", label: "毛利警示門檻（0.2 = 20%）", type: "number" },
@@ -26,6 +45,7 @@ export function ProjectList() {
   const [creating, setCreating] = useState(false);
   const [applyTemplate, setApplyTemplate] = useState(true);
   const [newType, setNewType] = useState("");
+  const newContacts = useClientContacts(null);
   const templates = useLoad<any[]>(creating ? "template.list" : null);
   const typesOf = (t: any) => String(t.project_types || "").split(/[,、，]/).map((s: string) => s.trim()).filter(Boolean);
   const common = (templates.data || []).filter(t => !typesOf(t).length);
@@ -60,9 +80,9 @@ export function ProjectList() {
       ]} empty="沒有符合的專案。" />}
       {creating && (
         <Modal title="新增專案" onClose={() => setCreating(false)}>
-          <RecordForm fields={PROJECT_FIELDS.concat(lk.can("admin", "manager", "accountant") ? FINANCE_FIELDS : [])} initial={undefined}
+          <RecordForm fields={projectFields(newContacts.contacts).concat(lk.can("admin", "manager", "accountant") ? FINANCE_FIELDS : [])} initial={undefined}
             onSubmit={create} onCancel={() => setCreating(false)} busy={busy} submitLabel="建立"
-            onValuesChange={(name, v) => { if (name === "project_type") setNewType(v || ""); }}
+            onValuesChange={(name, v) => { if (name === "project_type") setNewType(v || ""); if (name === "client_id") newContacts.setClientId(v || null); }}
             extra={<>
               <label className="check"><input type="checkbox" checked={applyTemplate} onChange={e => setApplyTemplate(e.target.checked)} />
                 依活動類型代入參考工作項目（需填活動日期）</label>
@@ -111,7 +131,7 @@ export function ProjectDetail({ id }: { id: string }) {
     }
   };
   return (
-    <Page title={p.name} sub={p.code + "・" + (p.client_name || "客戶未填") + "・" + (p.start_date ? p.start_date.replace(/-/g, "/") : "日期未定") + (p.venue ? "・" + p.venue : "")}
+    <Page title={p.name} sub={p.code + "・" + (p.client_name || "客戶未填") + (p.client_contact ? "（窗口 " + p.client_contact + (p.client_contact_info ? " " + p.client_contact_info : "") + "）" : "") + "・" + (p.start_date ? p.start_date.replace(/-/g, "/") : "日期未定") + (p.venue ? "・" + p.venue : "")}
       actions={<>
         <a className="btn" href="#/projects">← 專案列表</a>
         <select className="btn" value={p.stage} onChange={e => setStage(e.target.value)} aria-label="執行階段" disabled={busy}>
@@ -128,7 +148,7 @@ export function ProjectDetail({ id }: { id: string }) {
         <div className="stat"><b>{lk.nameOf(p.pm_account)}</b><span>PM</span></div>
       </div>
       <Tabs value={tab} onChange={setTab} tabs={([["tasks", "工作"], ["meetings", "會議"], ["suppliers", "供應商檔期"]] as [string, string][])
-        .concat(data.canSeeFinance ? [["budget", "預算與毛利"]] : []).concat([["close", "結案"]])} />
+        .concat(data.canSeeFinance ? [["budget", "報價單與毛利"]] : []).concat([["close", "結案"]])} />
       {tab === "tasks" && <Tasks project={p} tasks={data.tasks} options={opts.data} reload={reload} />}
       {tab === "meetings" && <Meetings project={p} meetings={data.meetings} reload={reload} />}
       {tab === "suppliers" && <Bookings project={p} bookings={data.bookings} reload={reload} />}
@@ -136,12 +156,18 @@ export function ProjectDetail({ id }: { id: string }) {
       {tab === "close" && <Close project={p} bookings={data.bookings} reload={reload} />}
       {editing && (
         <Modal title="編輯專案" onClose={() => setEditing(false)}>
-          <RecordForm fields={PROJECT_FIELDS.concat(data.canSeeFinance ? FINANCE_FIELDS : [])} initial={p} onSubmit={saveProject} onCancel={() => setEditing(false)} busy={busy}
+          <ProjectEditForm project={p} finance={data.canSeeFinance} onSubmit={saveProject} onCancel={() => setEditing(false)} busy={busy}
             extra={canDelete && <button type="button" className="btn danger-link" disabled={busy} onClick={removeProject}>刪除這個專案</button>} />
         </Modal>
       )}
     </Page>
   );
+}
+
+function ProjectEditForm({ project, finance, onSubmit, onCancel, busy, extra }: { project: any; finance: boolean; onSubmit: (v: any) => void; onCancel: () => void; busy: boolean; extra?: any }) {
+  const cc = useClientContacts(project.client_id);
+  return <RecordForm fields={projectFields(cc.contacts).concat(finance ? FINANCE_FIELDS : [])} initial={project} onSubmit={onSubmit} onCancel={onCancel} busy={busy}
+    onValuesChange={(name, v) => { if (name === "client_id") cc.setClientId(v || null); }} extra={extra} />;
 }
 
 function taskFields(options: any): Field[] {
@@ -416,6 +442,9 @@ function Bookings({ project, bookings, reload }: { project: any; bookings: any[]
   );
 }
 
+const QUOTE_TONE: Record<string, string> = { "草稿": "", "送審中": "yellow", "已核定": "green", "退回修改": "red" };
+
+/** 報價單：每一行有項目、規格、說明、單價、數量、總價、優惠價、預估成本、實際成本。主管核定後鎖住。 */
 function Budget({ project, reload }: { project: any; reload: () => void }) {
   const lk = useLookups();
   const b = useLoad<any>("budget.get", { project_id: project.id });
@@ -423,6 +452,7 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
   const [editing, setEditing] = useState<any | null | undefined>(undefined);
   const [change, setChange] = useState(false);
   const [fromPrices, setFromPrices] = useState(false);
+  const [info, setInfo] = useState(false);
   const { busy, run } = useAction();
   const done = () => { b.reload(); reload(); };
   const save = async (v: any) => {
@@ -431,7 +461,7 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
     if (r) { setEditing(undefined); done(); }
   };
   const remove = async () => {
-    if (!editing || !confirm("刪除科目「" + editing.item + "」？")) return;
+    if (!editing || !confirm("刪除「" + editing.item + "」？")) return;
     const r = await run(() => call("budget.deleteLine", { id: editing.id, expectedUpdatedAt: editing.updated_at }), "已刪除");
     if (r) { setEditing(undefined); done(); }
   };
@@ -439,28 +469,88 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
     const r = await run(() => call("budget.addChange", { project_id: project.id, record: v }), "已記錄增減項，毛利已重算");
     if (r) { setChange(false); done(); }
   };
+  const quoteAct = async (action: string, ok: string, ask?: string) => {
+    let note: string | null = null;
+    if (ask) { note = prompt(ask); if (note === null) return; }
+    const r = await run(() => call("quote." + action, { project_id: project.id, note }), ok);
+    if (r) done();
+  };
+  const saveInfo = async (v: any) => {
+    const r = await run(() => call("quote.setInfo", { project_id: project.id, record: v }), "已儲存");
+    if (r) { setInfo(false); b.reload(); }
+  };
   if (!b.data) return <Loading error={b.error} loading />;
   const t = b.data.totals;
+  const q = b.data.quote;
+  const locked = q.status === "送審中" || q.status === "已核定";
+  const boss = lk.can("admin", "manager");
+  const listTotal = b.data.lines.reduce((s: number, l: any) => s + (l.list_total ?? (Number(l.quote_amount) || 0)), 0);
+  const lineFields: Field[] = locked ? [
+    { name: "cost_actual", label: "實際成本（手填，例如廠商發票）", type: "number", hint: "掛在這一項的已核准請款會自動加上，不用重填" },
+    { name: "supplier_id", label: "供應商", type: "supplier" },
+    { name: "note", label: "備註", type: "textarea" },
+  ] : [
+    { name: "category", label: "科目", type: "select", options: cats.data || [], required: true },
+    { name: "item", label: "項目", required: true },
+    { name: "spec", label: "規格" },
+    { name: "unit", label: "單位（式、場、組…）" },
+    { name: "description", label: "說明（會印在報價單上）", type: "textarea" },
+    { name: "unit_price", label: "單價", type: "number" },
+    { name: "quantity", label: "數量（空白＝1）", type: "number" },
+    { name: "discount_price", label: "優惠價（這一項的金額；空白＝總價）", type: "number", hint: "總價 = 單價 × 數量；有填優惠價，報價合計用優惠價" },
+    { name: "cost_estimate", label: "預估成本（主管核定後就是這一項可請款的金額）", type: "number" },
+    { name: "cost_actual", label: "實際成本（手填，例如廠商發票）", type: "number", hint: "掛在這一項的已核准請款會自動加上，不用重填" },
+    { name: "supplier_id", label: "供應商", type: "supplier" },
+    { name: "note", label: "內部備註（不印在報價單上）", type: "textarea" },
+  ];
+  const overBadge = (e: any) => e.over_budget ? <Badge text={"超出核定 " + money(e.over_budget.over)} tone="red" /> : null;
   return (
     <>
+      <div className="card quote-head">
+        <div>
+          <b>報價單</b> <Badge text={q.status} tone={QUOTE_TONE[q.status]} />
+          {q.status === "已核定" && <small className="muted">　{lk.nameOf(q.approved_by)} 核定於 {shortDate(String(q.approved_at || "").slice(0, 10))}・核定報價 {money(q.approved_total)}・核定成本 {money(q.cost_approved_total)}</small>}
+          {q.status === "送審中" && <small className="muted">　{shortDate(String(q.submitted_at || "").slice(0, 10))} 送審，等主管核定；送審中與核定後不能改報價與預估成本</small>}
+          {q.review_note && <small className={q.status === "退回修改" ? "red block" : "muted block"}>主管意見：{q.review_note}</small>}
+        </div>
+        <div className="page-actions">
+          {(q.status === "草稿" || q.status === "退回修改") && <button className="btn primary" disabled={busy || !b.data.lines.length} onClick={() => quoteAct("submit", "已送主管核定")}>送主管核定</button>}
+          {boss && q.status === "送審中" && <>
+            <button className="btn" disabled={busy} onClick={() => quoteAct("return", "已退回修改", "退回原因（PM 會看到）")}>退回修改</button>
+            <button className="btn primary" disabled={busy} onClick={() => quoteAct("approve", "已核定，報價與預估成本已鎖定")}>核定</button>
+          </>}
+          {boss && q.status === "已核定" && <button className="btn" disabled={busy} onClick={() => quoteAct("return", "已退回成可修改", "為什麼要重新修改報價單？（會留紀錄）")}>退回修改</button>}
+          <button className="btn" onClick={() => setInfo(true)}>報價日期與條款</button>
+          <button className="btn" onClick={() => printQuote(project, b.data, lk)}>列印報價單</button>
+        </div>
+      </div>
       <div className="stats">
-        <div className="stat"><b>{money(t.quote)}</b><span>報價合計（含增減項）</span></div>
+        <div className="stat"><b>{money(t.quote)}</b><span>報價合計（優惠後，含增減項）</span></div>
         <div className="stat"><b>{money(t.estimate)}</b><span>預估成本</span></div>
         <div className="stat"><b>{money(t.actual)}</b><span>實際成本（含費用、派遣）</span></div>
         <div className="stat"><b>{money(t.current)}</b><span>目前成本</span></div>
         <div className="stat"><b className={project.margin_alert ? "red" : ""}>{money(t.margin)}・{pct(t.marginRate)}</b><span>目前毛利</span></div>
       </div>
-      <p className="muted small">目前成本：每個科目取「預估」與「實際」較大者，再加上沒掛科目的費用、派遣人力（{money(b.data.labor.cost)} 元，{b.data.labor.hours} 小時）與增減項成本。</p>
-      <div className="toolbar"><h3>預算科目</h3><span className="spacer" /><button className="btn" onClick={() => setChange(true)}>＋ 增減項</button><button className="btn" onClick={() => setFromPrices(true)}>從報價參考加入</button><button className="btn primary" onClick={() => setEditing(null)}>＋ 科目</button></div>
+      <p className="muted small">目前成本：每一項取「預估」與「實際」較大者，再加上沒指定項目的費用、派遣人力（{money(b.data.labor.cost)} 元，{b.data.labor.hours} 小時）與增減項成本。請款可以分次申請，同一項累計超過預估成本（核定金額）會標紅。</p>
+      <div className="toolbar"><h3>報價項目</h3><span className="spacer" />
+        <button className="btn" onClick={() => setChange(true)}>＋ 增減項</button>
+        {!locked && <><button className="btn" onClick={() => setFromPrices(true)}>從報價參考加入</button><button className="btn primary" onClick={() => setEditing(null)}>＋ 項目</button></>}
+      </div>
       {fromPrices && <PricePicker project={project} categories={cats.data || []} onClose={() => setFromPrices(false)} onDone={() => { setFromPrices(false); done(); }} />}
-      <Table rows={b.data.lines} onRow={l => setEditing(l)} empty="還沒有預算科目。" columns={[
-        { key: "category", label: "科目" },
-        { key: "item", label: "項目", render: l => <><b>{l.item}</b>{l.supplier_id && <small className="muted block">{lk.suppliers.find(s => s.id === l.supplier_id)?.name}</small>}</> },
-        { key: "quote_amount", label: "報價", num: true, render: l => money(l.quote_amount) },
-        { key: "cost_estimate", label: "預估", num: true, render: l => money(l.cost_estimate) },
-        { key: "actual", label: "實際", num: true, render: l => money((l.cost_actual || 0) + l.expense_actual) },
-        { key: "current", label: "目前", num: true, render: l => <span className={l.current_cost > (l.cost_estimate || 0) ? "red" : ""}>{money(l.current_cost)}</span> },
+      <Table rows={b.data.lines} onRow={l => setEditing(l)} empty="還沒有報價項目。" columns={[
+        { key: "item", label: "項目", render: l => <><b>{l.item}</b><small className="muted block">{[l.category, l.spec, l.description].filter(Boolean).join("・")}{l.supplier_id ? "・" + (lk.suppliers.find(s => s.id === l.supplier_id)?.name || "") : ""}</small></> },
+        { key: "unit_price", label: "單價", num: true, hideSm: true, render: l => l.unit_price != null ? money(l.unit_price) : "—" },
+        { key: "quantity", label: "數量", num: true, hideSm: true, render: l => l.unit_price != null ? (l.quantity ?? 1) + (l.unit ? " " + l.unit : "") : "—" },
+        { key: "total", label: "總價", num: true, render: l => money(l.list_total ?? l.quote_amount) },
+        { key: "discount", label: "優惠價", num: true, render: l => l.discount_price != null ? <b>{money(l.discount_price)}</b> : <span className="muted">—</span> },
+        { key: "cost_estimate", label: "預估成本", num: true, render: l => money(l.cost_estimate) },
+        { key: "claimed", label: "已申請／實際", num: true, render: l => {
+          const over = l.cost_estimate != null && l.claimed > Number(l.cost_estimate);
+          return <><span className={over ? "red" : ""}>{money(l.claimed)}</span>{over && <small className="red block">超出 {money(l.claimed - Number(l.cost_estimate))}</small>}
+            {l.claimed !== (Number(l.cost_actual) || 0) + l.expense_actual && <small className="muted block">已核准 {money((Number(l.cost_actual) || 0) + l.expense_actual)}</small>}</>;
+        } },
       ]} />
+      <p className="muted small">原價合計 {money(listTotal)}・優惠後合計 {money(b.data.lines.reduce((s: number, l: any) => s + (Number(l.quote_amount) || 0), 0))}{locked ? "・報價單已鎖定，點項目只能填實際成本、供應商、備註" : ""}</p>
       {b.data.changes.length > 0 && <>
         <h3>增減項紀錄</h3>
         <Table rows={b.data.changes} columns={[
@@ -471,32 +561,35 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
           { key: "cost_delta", label: "成本變動", num: true, render: c => money(c.cost_delta) },
         ]} />
       </>}
-      {b.data.expenses.length > 0 && <>
-        <h3>已核准的費用 <span className="muted small">{b.data.unlinkedExpenses.length ? b.data.unlinkedExpenses.length + " 筆還沒指定對沖科目" : "都已指定對沖科目"}</span></h3>
-        <p className="muted small">每筆費用可以指定對沖哪個預算科目，改了馬上重算毛利。沒指定的另外算進目前成本。</p>
-        <Table rows={b.data.expenses} columns={[
+      {(b.data.expenses.length > 0 || b.data.pendingExpenses.length > 0) && <>
+        <h3>請款 <span className="muted small">{b.data.unlinkedExpenses.length ? b.data.unlinkedExpenses.length + " 筆已核准的還沒指定項目" : ""}</span></h3>
+        <p className="muted small">已核准、已付款的計入實際成本；送審中的先列出來，算在「已申請」。每筆可以指定對沖哪一項，改了馬上重算毛利。</p>
+        <Table rows={[...b.data.pendingExpenses, ...b.data.expenses]} columns={[
           { key: "description", label: "內容", render: e => <><b>{e.description}</b><small className="muted block">{e.category}・{lk.nameOf(e.claimant_account)}{e.receipt_date ? "・" + shortDate(e.receipt_date) : ""}</small></> },
+          { key: "status", label: "狀態", render: e => <span className="quote-list"><Badge text={e.status === "submitted" ? "待主管核准" : e.status === "paid" ? "已付款" : "已核准"} tone={e.status === "submitted" ? "yellow" : "green"} />{overBadge(e)}</span> },
           { key: "amount", label: "金額", num: true, render: e => money(e.amount) },
-          { key: "line", label: "對沖科目", render: e => (
-            <select value={e.budget_line_id || ""} disabled={busy} aria-label="對沖科目" className={e.budget_line_id ? "" : "warn"}
-              onChange={async ev => { const r = await run(() => call("expense.setBudgetLine", { id: e.id, budget_line_id: ev.target.value || null }), "已更新對沖科目，毛利已重算"); if (r) done(); }}>
+          { key: "line", label: "對沖項目", render: e => (
+            <select value={e.budget_line_id || ""} disabled={busy} aria-label="對沖項目"
+              onChange={async ev => { const r = await run(() => call("expense.setBudgetLine", { id: e.id, budget_line_id: ev.target.value || null }), "已更新對沖項目，毛利已重算"); if (r) done(); }}>
               <option value="">（未指定）</option>
               {b.data.lines.map((l: any) => <option key={l.id} value={l.id}>{l.category}／{l.item}</option>)}
             </select>) },
         ]} />
       </>}
       {editing !== undefined && (
-        <Modal title={editing ? "編輯科目" : "新增預算科目"} onClose={() => setEditing(undefined)}>
+        <Modal title={editing ? (locked ? "填實際成本：" + editing.item : "編輯項目") : "新增報價項目"} onClose={() => setEditing(undefined)}>
+          {locked && editing && <p className="muted small">報價單{q.status}，報價與預估成本不能改。單價 {money(editing.unit_price)} × {editing.quantity ?? 1}，預估成本 {money(editing.cost_estimate)}。</p>}
           <RecordForm busy={busy} initial={editing || undefined} onSubmit={save} onCancel={() => setEditing(undefined)}
-            extra={editing && <button type="button" className="btn danger-link" onClick={remove}>刪除科目</button>} fields={[
-              { name: "category", label: "科目", type: "select", options: cats.data || [], required: true },
-              { name: "item", label: "項目", required: true },
-              { name: "quote_amount", label: "報價", type: "number" },
-              { name: "cost_estimate", label: "預估成本", type: "number" },
-              { name: "cost_actual", label: "實際成本（手填，例如廠商發票）", type: "number", hint: "掛在這個科目的已核准請款會自動加上，不用重填" },
-              { name: "supplier_id", label: "供應商", type: "supplier" },
-              { name: "note", label: "備註", type: "textarea" },
-            ]} />
+            extra={editing && !locked && <button type="button" className="btn danger-link" onClick={remove}>刪除這一項</button>} fields={lineFields} />
+        </Modal>
+      )}
+      {info && (
+        <Modal title="報價日期與條款" onClose={() => setInfo(false)}>
+          <RecordForm busy={busy} initial={{ quote_date: q.quote_date, quote_valid_until: q.valid_until, quote_terms: q.terms }} onSubmit={saveInfo} onCancel={() => setInfo(false)} fields={[
+            { name: "quote_date", label: "報價日期（空白＝列印當天）", type: "date" },
+            { name: "quote_valid_until", label: "報價有效期限", type: "date" },
+            { name: "quote_terms", label: "付款條件與備註（印在報價單下方）", type: "textarea", hint: "例如：簽約付 50%，活動結束後 30 天內付清；以上金額未稅" },
+          ]} />
         </Modal>
       )}
       {change && (
@@ -513,6 +606,45 @@ function Budget({ project, reload }: { project: any; reload: () => void }) {
       )}
     </>
   );
+}
+
+/** 給客戶的報價單：只印項目、規格、說明、單價、數量、總價、優惠價；不印成本。未核定的加「草稿」浮水印。 */
+function printQuote(project: any, data: any, lk: any) {
+  const esc = (v: any) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+  const n = (v: any) => v == null || v === "" ? "" : Number(v).toLocaleString("zh-TW");
+  const q = data.quote;
+  const today = new Date().toISOString().slice(0, 10);
+  const lines = data.lines as any[];
+  const listTotal = lines.reduce((s, l) => s + (l.list_total ?? (Number(l.quote_amount) || 0)), 0);
+  const finalTotal = lines.reduce((s, l) => s + (Number(l.quote_amount) || 0), 0);
+  const rows = lines.map((l, i) => `<tr><td>${i + 1}</td><td><b>${esc(l.item)}</b>${l.description ? `<div class="d">${esc(l.description).replace(/\n/g, "<br>")}</div>` : ""}</td>
+    <td>${esc(l.spec)}</td><td class="n">${n(l.unit_price)}</td><td class="n">${l.unit_price != null ? esc((l.quantity ?? 1) + (l.unit ? " " + l.unit : "")) : ""}</td>
+    <td class="n">${n(l.list_total ?? l.quote_amount)}</td><td class="n">${l.discount_price != null ? n(l.discount_price) : ""}</td></tr>`).join("");
+  const logo = new URL("./logo.png", location.href).href;
+  const html = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><title>報價單 ${esc(project.code)} ${esc(project.name)}</title><style>
+    body{font-family:"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;color:#222;margin:32px;font-size:13px}
+    h1{font-size:22px;margin:0 0 4px}.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:18px}
+    .meta{display:grid;grid-template-columns:auto 1fr auto 1fr;gap:4px 12px;margin:12px 0 16px}.meta b{color:#555;font-weight:500}
+    table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:6px 8px;vertical-align:top}th{background:#f2f2f2;text-align:left}
+    .n{text-align:right;white-space:nowrap}.d{color:#555;font-size:12px;margin-top:2px}.tot td{font-weight:600}
+    .terms{margin-top:16px;white-space:pre-wrap}.sign{margin-top:40px;display:flex;justify-content:space-between}
+    .draft{position:fixed;top:40%;left:0;right:0;text-align:center;font-size:120px;color:rgba(200,0,0,.08);transform:rotate(-20deg);pointer-events:none}
+    @media print{body{margin:12mm}}
+  </style></head><body>${q.status === "已核定" ? "" : '<div class="draft">草稿</div>'}
+  <div class="top"><div><h1>報價單</h1><div>${esc(project.code)}</div></div><img src="${logo}" alt="imPR 新動力公關" height="36"></div>
+  <div class="meta"><b>客戶</b><span>${esc(project.client_name)}</span><b>報價日期</b><span>${esc(q.quote_date || today)}</span>
+    <b>窗口</b><span>${esc([project.client_contact, project.client_contact_title].filter(Boolean).join(" "))}</span><b>有效期限</b><span>${esc(q.valid_until || "")}</span>
+    <b>專案</b><span>${esc(project.name)}</span><b>活動日期</b><span>${esc(project.start_date || "")}${project.venue ? "・" + esc(project.venue) : ""}</span>
+    <b>聯絡方式</b><span>${esc(project.client_contact_info)}</span><b>承辦</b><span>${esc(lk.nameOf(project.pm_account))}</span></div>
+  <table><thead><tr><th>#</th><th>項目／說明</th><th>規格</th><th class="n">單價</th><th class="n">數量</th><th class="n">總價</th><th class="n">優惠價</th></tr></thead>
+  <tbody>${rows}<tr class="tot"><td colspan="5" class="n">合計</td><td class="n">${n(listTotal)}</td><td class="n">${finalTotal !== listTotal ? n(finalTotal) : ""}</td></tr></tbody></table>
+  <p>報價金額：新台幣 <b>${n(finalTotal)}</b> 元</p>
+  ${q.terms ? `<div class="terms">${esc(q.terms)}</div>` : ""}
+  <div class="sign"><span>報價單位：imPR 新動力公關</span><span>客戶確認簽章：＿＿＿＿＿＿＿＿＿＿</span></div>
+  <script>window.onload=()=>setTimeout(()=>window.print(),300)</script></body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("瀏覽器擋住了新視窗，請允許彈出視窗後再按一次。"); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 
 function Close({ project, bookings, reload }: { project: any; bookings: any[]; reload: () => void }) {

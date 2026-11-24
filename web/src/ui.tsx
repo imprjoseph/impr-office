@@ -206,7 +206,7 @@ export function Modal({ title, onClose, children, wide }: { title: string; onClo
   );
 }
 
-export type FieldType = "text" | "number" | "date" | "time" | "textarea" | "select" | "person" | "project" | "client" | "supplier" | "checkbox" | "url" | "email" | "multi" | "image";
+export type FieldType = "text" | "number" | "date" | "time" | "textarea" | "select" | "person" | "project" | "client" | "supplier" | "checkbox" | "url" | "email" | "multi" | "image" | "combo";
 export interface Field { name: string; label: string; type?: FieldType; options?: string[] | [string, string][]; required?: boolean; hint?: string; full?: boolean; filter?: (row: any) => boolean }
 
 export function FieldInput({ f, value, onChange }: { f: Field; value: any; onChange: (v: any) => void }) {
@@ -239,6 +239,11 @@ export function FieldInput({ f, value, onChange }: { f: Field; value: any; onCha
         })}</div>
       );
     }
+    // 可選可打：下拉建議清單，清單沒有的也能直接輸入
+    case "combo": return <>
+      <input {...common} list={id + "-list"} value={value ?? ""} onChange={e => onChange(e.target.value)} autoComplete="off" />
+      <datalist id={id + "-list"}>{(f.options || []).map(o => Array.isArray(o) ? <option key={o[0]} value={o[0]}>{o[1]}</option> : <option key={o} value={o} />)}</datalist>
+    </>;
     case "select": return (
       <select {...common} value={value ?? ""} onChange={e => onChange(e.target.value || null)}>
         <option value="">{f.required ? "請選擇" : "（不指定）"}</option>
