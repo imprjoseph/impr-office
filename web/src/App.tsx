@@ -4,7 +4,8 @@
  */
 import { useEffect, useState } from "react";
 import { BarChart3, Briefcase, Calculator, Building2, CalendarClock, ClipboardList, FileText, Gavel, Home, KeyRound, Landmark, Newspaper, UserRoundSearch, LogOut, Menu, Package,
-  Receipt, Settings, Sparkles, Truck, Users, UserRoundCog, X } from "lucide-react";
+  Receipt, Settings, Sparkles, Truck, Users, UserRoundCog, X, MessagesSquare } from "lucide-react";
+import MeetingsPage from "./pages/Meetings";
 import { call, hasValidToken, LOGIN_EVENT, logout, Me } from "./api";
 import { Login, PasswordModal } from "./pages/Login";
 import { clearLoadMemo, LookupProvider, ToastProvider, useLookups } from "./ui";
@@ -32,6 +33,7 @@ const NAV: { group: string; items: NavItem[] }[] = [
   { group: "", items: [{ path: "", label: "我的工作台", icon: Home, roles: INTERNAL }] },
   { group: "專案", items: [
     { path: "projects", label: "專案與工作", icon: Briefcase, roles: INTERNAL },
+    { path: "meetings", label: "會議紀錄", icon: MessagesSquare, roles: INTERNAL },
     { path: "tenders", label: "標案", icon: Gavel, roles: INTERNAL },
     { path: "ai", label: "AI 文件與設計", icon: Sparkles, roles: INTERNAL },
   ] },
@@ -85,6 +87,7 @@ function Shell() {
       case "": return <Dashboard />;
       case "projects": return id ? <ProjectDetail id={id} /> : <ProjectList />;
       case "tenders": return <Tenders />;
+      case "meetings": return <MeetingsPage />;
       case "public-tenders": return <PublicTenders />;
       case "media": return <Media />;
       case "price-refs": return <PriceRefs />;

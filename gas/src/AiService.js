@@ -96,6 +96,45 @@ const AiService = {
     return { image: generateImage_(p, ratio, ctx, projectId) };
   },
 
+  /**
+   * 會議紀錄整理：把同仁打的原始紀錄整理成摘要、決議事項、待辦（負責人對到公司人員、截止日換成日期）。
+   * 只回傳建議，同仁確認或修改後才存；AI 不直接寫入。
+   */
+  meetingSummary(input, ctx) {
+    const notes = String(input.notes || '').trim();
+    if (notes.length < 20) throw new AppError(ERROR_CODES.VALIDATION, '會議紀錄太短，請先把討論內容打進「原始紀錄」');
+    if (notes.length > 20000) throw new AppError(ERROR_CODES.VALIDATION, '會議紀錄太長，請分段整理（2 萬字內）');
+    const people = repo_('people').findAll().filter(p => p.active !== false && p.kind !== '派遣');
+    const project = input.project_id ? repo_('projects').findById(input.project_id) : null;
+    const date = input.meeting_date || todayIso_();
+    const system = '你是公關活動公司的會議秘書。把會議原始紀錄整理成繁體中文。只根據紀錄內容，不要補沒提到的事。' +
+      '摘要 3 到 6 句，先講結論；決議事項一項一句；待辦要具體可執行，一項一件事。' +
+      '負責人只能從提供的公司人員名單挑（寫帳號），紀錄沒說是誰就留空；截止日換成 YYYY-MM-DD（相對日期以會議日期推算），沒說就留空。' +
+      '\n只輸出 JSON，不要其他文字：{"summary":"摘要","decisions":["決議一"],"actions":[{"title":"待辦","owner_account":"帳號或空字串","due_date":"YYYY-MM-DD 或空字串"}],"next_meeting_date":"YYYY-MM-DD 或空字串"}';
+    const prompt = '會議：' + (input.title || '') + '\n日期：' + date + (project ? '\n專案：' + project.name : '') +
+      (input.attendees ? '\n出席：' + input.attendees : '') +
+      '\n公司人員（帳號：姓名）：' + people.map(p => p.account + '：' + p.name).join('、') +
+      '\n\n原始紀錄：\n' + notes;
+    const res = this.callClaude_(CLAUDE_DOC_MODEL_, system, prompt, 3000, 'meeting.summary', input.project_id || null, ctx);
+    let out;
+    try {
+      out = JSON.parse(res.text.replace(/^```(json)?|```$/g, '').trim());
+    } catch (e) {
+      throw new AppError(ERROR_CODES.VALIDATION, 'AI 回傳的格式有誤，請再試一次');
+    }
+    const accounts = {};
+    people.forEach(p => { accounts[p.account] = true; });
+    const isDate = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''));
+    return {
+      summary: String(out.summary || ''),
+      decisions: (Array.isArray(out.decisions) ? out.decisions : []).map(String).filter(Boolean),
+      actions: (Array.isArray(out.actions) ? out.actions : []).filter(a => a && a.title).slice(0, 30).map(a => ({
+        title: String(a.title), owner_account: accounts[a.owner_account] ? a.owner_account : '', due_date: isDate(a.due_date) ? a.due_date : '',
+      })),
+      next_meeting_date: isDate(out.next_meeting_date) ? out.next_meeting_date : '',
+    };
+  },
+
   /** 呼叫 Claude Messages API（raw HTTP；Apps Script 沒有官方 SDK）。回傳 { text, jobId }。 */
   callClaude_(model, system, prompt, maxTokens, kind, projectId, ctx, opts) {
     const o = opts || {};
@@ -371,5 +410,7 @@ function aiRoutes_() {
     'ai.designImage': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       AiService.designImage(requireString_(p, 'prompt'), p.ratio || null, p.project_id || null, ctx) },
     'ai.usage': { roles: [ROLES.ADMIN], handler: () => AiService.usageThisMonth() },
+    'ai.meetingSummary': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
+      AiService.meetingSummary(pickAllowed_(p, ['notes', 'title', 'meeting_date', 'attendees', 'project_id'], '會議整理'), ctx) },
   };
 }

@@ -102,6 +102,42 @@ module.exports = (test, { assert }) => {
     assert.doesNotMatch(mails[0].body, /剛保養|無人保管/);
     assert.strictEqual(app.runDailyReminders().sent, 0);
   });
+  test('[會議] AI 整理：摘要、決議、待辦；負責人只能是公司人員、日期格式不對就留空；紀錄太短擋下', (env) => {
+    const { call, properties } = env;
+    properties.ANTHROPIC_API_KEY = 'test-key';
+    call('boss', 'people.sync');
+    env.aiHandler = () => ({ type: 'message', stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 10 }, content: [{ type: 'text', text: '```json\n' + JSON.stringify({
+      summary: '主視覺定稿', decisions: ['採 B 案'], actions: [{ title: '修圖', owner_account: 'amy', due_date: '2026-12-01' }, { title: '問場地', owner_account: 'stranger', due_date: '下週' }], next_meeting_date: 'x' }) + '\n```' }] });
+    assert.throws(() => call('hazel', 'ai.meetingSummary', { notes: '太短' }), /太短/);
+    const r = call('hazel', 'ai.meetingSummary', { notes: '今天討論主視覺，大家同意採用 B 案，Amy 負責修圖，12/1 前交。另外要問場地。', title: '進度會議' });
+    assert.strictEqual(r.summary, '主視覺定稿');
+    assert.deepStrictEqual(r.decisions, ['採 B 案']);
+    assert.deepStrictEqual(r.actions, [{ title: '修圖', owner_account: 'amy', due_date: '2026-12-01' }, { title: '問場地', owner_account: '', due_date: '' }]);
+    assert.strictEqual(r.next_meeting_date, '');
+  });
+
+  test('[會議] 彙整：列表附待辦統計；查單場含待辦；會後追加待辦；待辦總表只列未完成；刪會議保留工作', ({ call, app }) => {
+    const { project } = call('hazel', 'project.create', { record: { name: '年會' } });
+    const r = call('hazel', 'meeting.create', { meeting: { project_id: project.id, title: '第一次進度會議', meeting_date: '2026-11-20', meeting_type: '進度會議', summary: '確認分工', decisions: '採 B 案' },
+      tasks: [{ title: '修圖', owner_account: 'amy', due_date: '2000-01-01' }, { title: '訂場地', owner_account: 'hazel' }] });
+    assert.throws(() => call('hazel', 'meeting.create', { meeting: { title: 'x', meeting_date: '2026-11-20', meeting_type: '亂寫' }, tasks: [] }), /會議類型/);
+    let list = call('hazel', 'meeting.list');
+    assert.deepStrictEqual([list[0].project_name, list[0].task_total, list[0].task_open, list[0].task_overdue], ['年會', 2, 2, 1]);
+    call('amy', 'meeting.addTasks', { meeting_id: r.meeting.id, tasks: [{ title: '寄會議摘要給客戶', owner_account: 'amy' }] });
+    const got = call('hazel', 'meeting.get', { id: r.meeting.id });
+    assert.strictEqual(got.tasks.length, 3);
+    const t0 = got.tasks.find(t => t.title === '修圖');
+    call('amy', 'task.update', { id: t0.id, expectedUpdatedAt: t0.updated_at, patch: { status: '已完成' } });
+    assert.strictEqual(call('hazel', 'meeting.actionItems', {}).length, 2);
+    assert.strictEqual(call('hazel', 'meeting.actionItems', { includeDone: true }).length, 3);
+    const m = call('hazel', 'meeting.update', { id: r.meeting.id, expectedUpdatedAt: r.meeting.updated_at, patch: { summary: '確認分工與主視覺' } });
+    assert.strictEqual(m.summary, '確認分工與主視覺');
+    assert.throws(() => call('amy', 'meeting.delete', { id: m.id, expectedUpdatedAt: m.updated_at }), /建立的人/);
+    assert.strictEqual(call('hazel', 'meeting.delete', { id: m.id, expectedUpdatedAt: m.updated_at }).tasks_kept, 3);
+    assert.strictEqual(app.repo_('project_tasks').findWhere(t => t.project_id === project.id && t.title === '修圖').length, 1);
+    assert.strictEqual(call('hazel', 'meeting.list').length, 0);
+  });
+
   test('[AI] 平面設計：Claude 寫文案與 GPT 提示詞；再把提示詞交給 GPT 出圖，尺寸依比例換算並記用量', (env) => {
     const { call, properties, aiCalls } = env;
     properties.ANTHROPIC_API_KEY = 'test-key';

@@ -98,7 +98,9 @@ const TABLES = {
     // 適用的活動類型（頓號分隔）；空白＝所有類型都套用
     'project_types') },
   meetings: { prefix: 'mtg', cache: false, columns: cols_(
-    'project_id, title!, meeting_date:date!, attendees, notes') },
+    'project_id, title!, meeting_date:date!, attendees, notes, ' +
+    // 會議類型（內部、客戶、廠商…）、地點；summary 是整理過的會議摘要，decisions 是決議事項（一行一項），notes 是原始紀錄
+    'meeting_type, location, summary, decisions, next_meeting_date:date') },
 
   // ---- 預算、毛利、費用 ----
   budget_lines: { prefix: 'bdl', cache: false, columns: cols_(

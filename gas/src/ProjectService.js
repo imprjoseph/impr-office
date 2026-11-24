@@ -257,7 +257,89 @@ const TaskService = {
   },
 };
 
+const MEETING_FIELDS_ = ['project_id', 'title', 'meeting_date', 'attendees', 'notes', 'meeting_type', 'location', 'summary', 'decisions', 'next_meeting_date'];
+const MEETING_TYPES = ['內部會議', '客戶會議', '廠商會議', '進度會議', '場勘', '其他'];
+
 const MeetingService = {
+  /** 會議彙整：每場附上專案名稱與待辦統計（待辦就是帶 meeting_id 的專案工作）。 */
+  list() {
+    const today = todayIso_();
+    const projects = indexBy_(repo_('projects').findAll(), 'id');
+    const byMeeting = {};
+    repo_('project_tasks').findWhere(t => t.meeting_id).forEach(t => { (byMeeting[t.meeting_id] = byMeeting[t.meeting_id] || []).push(t); });
+    return sortBy_(repo_('meetings').findAll(), 'meeting_date').reverse().map(m => {
+      const tasks = byMeeting[m.id] || [];
+      const open = tasks.filter(t => TASK_DONE_STATUSES_.indexOf(t.status) === -1);
+      return Object.assign({}, m, {
+        project_name: m.project_id && projects[m.project_id] ? projects[m.project_id].name : null,
+        project_code: m.project_id && projects[m.project_id] ? projects[m.project_id].code : null,
+        task_total: tasks.length, task_open: open.length,
+        task_overdue: open.filter(t => t.due_date && t.due_date < today).length,
+      });
+    });
+  },
+
+  get(id) {
+    const m = repo_('meetings').findById(id);
+    if (!m) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到這場會議');
+    const today = todayIso_();
+    const projects = indexBy_(repo_('projects').findAll(), 'id');
+    const tasks = sortBy_(repo_('project_tasks').findWhere(t => t.meeting_id === id), 'due_date')
+      .map(t => Object.assign({}, t, { light: taskLight_(t, today), project_name: projects[t.project_id] ? projects[t.project_id].name : null }));
+    return { meeting: Object.assign({}, m, { project_name: m.project_id && projects[m.project_id] ? projects[m.project_id].name : null }), tasks };
+  },
+
+  /** 所有會議產生的待辦（跨專案）：預設只列未完成的。 */
+  actionItems(includeDone) {
+    const today = todayIso_();
+    const meetings = indexBy_(repo_('meetings').findAll(), 'id');
+    const projects = indexBy_(repo_('projects').findAll(), 'id');
+    return sortBy_(repo_('project_tasks').findWhere(t => t.meeting_id && meetings[t.meeting_id] &&
+      (includeDone || TASK_DONE_STATUSES_.indexOf(t.status) === -1)), 'due_date')
+      .map(t => Object.assign({}, t, {
+        light: taskLight_(t, today), meeting_title: meetings[t.meeting_id].title, meeting_date: meetings[t.meeting_id].meeting_date,
+        project_name: projects[t.project_id] ? projects[t.project_id].name : null,
+      }));
+  },
+
+  update(id, expected, patch, ctx) {
+    if ('meeting_type' in patch && patch.meeting_type && MEETING_TYPES.indexOf(patch.meeting_type) === -1) throw new AppError(ERROR_CODES.VALIDATION, '會議類型不正確');
+    if ('project_id' in patch && patch.project_id && !repo_('projects').findById(patch.project_id)) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到專案');
+    return updateRecord_('meetings', id, expected, patch, ctx.account);
+  },
+
+  /** 刪會議只刪紀錄本身；它產生的待辦已經是專案工作，保留下來（只是不再連到會議）。 */
+  remove(id, expected, ctx) {
+    return withScriptLock_(() => {
+      const repo = repo_('meetings');
+      const snapshot = loadCurrentForWrite_(repo, id, expected);
+      if (!hasRole_(ctx, [ROLES.ADMIN, ROLES.MANAGER]) && snapshot.record.created_by !== ctx.account) {
+        throw new AppError(ERROR_CODES.FORBIDDEN, '只有建立的人、管理者或主管可以刪除會議紀錄');
+      }
+      const tasks = repo_('project_tasks').findWhere(t => t.meeting_id === id);
+      const patches = {};
+      tasks.forEach(t => { patches[t.id] = { meeting_id: null }; });
+      if (tasks.length) repo_('project_tasks').updateMany(patches, ctx.account);
+      repo.markDeleted(snapshot, ctx.account);
+      return { id, tasks_kept: tasks.length };
+    });
+  },
+
+  /** 會後追加待辦。 */
+  addTasks(meetingId, tasks, ctx) {
+    return withScriptLock_(() => {
+      const m = repo_('meetings').findById(meetingId);
+      if (!m) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到這場會議');
+      if (!tasks.length) throw new AppError(ERROR_CODES.VALIDATION, '請至少填一項待辦');
+      tasks.forEach((t, i) => {
+        if (!t.title) throw new AppError(ERROR_CODES.VALIDATION, '第 ' + (i + 1) + ' 筆待辦缺少工作項目');
+        if (!(t.project_id || m.project_id)) throw new AppError(ERROR_CODES.VALIDATION, '第 ' + (i + 1) + ' 筆待辦要指定專案');
+        assertTaskValues_(t);
+      });
+      return TaskService.insertMany_(tasks.map(t => Object.assign({}, t, { project_id: t.project_id || m.project_id, meeting_id: meetingId })), ctx);
+    });
+  },
+
   /**
    * 會議紀錄連同決議的待辦一起建立，待辦直接成為專案工作（帶 meeting_id），不再是另一份清單。
    * 先全部驗過再寫：Sheets 沒有交易，寫到一半失敗會留下沒有待辦的會議。
@@ -265,6 +347,7 @@ const MeetingService = {
   createWithTasks(meeting, tasks, ctx) {
     return withScriptLock_(() => {
       if (meeting.project_id && !repo_('projects').findById(meeting.project_id)) throw new AppError(ERROR_CODES.NOT_FOUND, '找不到專案');
+      if (meeting.meeting_type && MEETING_TYPES.indexOf(meeting.meeting_type) === -1) throw new AppError(ERROR_CODES.VALIDATION, '會議類型不正確');
       tasks.forEach((t, i) => {
         if (!t.title) throw new AppError(ERROR_CODES.VALIDATION, '第 ' + (i + 1) + ' 筆待辦缺少工作項目');
         if (!(t.project_id || meeting.project_id)) throw new AppError(ERROR_CODES.VALIDATION, '第 ' + (i + 1) + ' 筆待辦要指定專案');
@@ -467,9 +550,19 @@ function projectRoutes_() {
     'task.addFromTemplates': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
       TaskService.addFromTemplates(requireString_(p, 'project_id'), requireArray_(p, 'template_ids').map(String), ctx) },
     'meeting.create': { roles: INTERNAL_ROLES_, handler: (p, ctx) =>
-      MeetingService.createWithTasks(pickAllowed_(p.meeting || {}, ['project_id', 'title', 'meeting_date', 'attendees', 'notes'], '會議'),
+      MeetingService.createWithTasks(pickAllowed_(p.meeting || {}, MEETING_FIELDS_, '會議'),
         requireArray_(p, 'tasks').map((t, i) => pickAllowed_(t, TASK_FIELDS_.concat(['project_id']), '第 ' + (i + 1) + ' 筆待辦')), ctx) },
-    'meeting.list': { roles: INTERNAL_ROLES_, handler: () => sortBy_(repo_('meetings').findAll(), 'meeting_date').reverse() },
+    'meeting.list': { roles: INTERNAL_ROLES_, handler: () => MeetingService.list() },
+    'meeting.types': { roles: INTERNAL_ROLES_, handler: () => MEETING_TYPES },
+    'meeting.get': { roles: INTERNAL_ROLES_, handler: p => MeetingService.get(requireString_(p, 'id')) },
+    'meeting.actionItems': { roles: INTERNAL_ROLES_, handler: p => MeetingService.actionItems(p.includeDone === true) },
+    'meeting.update': { roles: INTERNAL_ROLES_, handler: (p, ctx) => {
+      const a = updateArgs_(p, MEETING_FIELDS_, '會議');
+      return MeetingService.update(a.id, a.expected, a.patch, ctx);
+    } },
+    'meeting.delete': { roles: INTERNAL_ROLES_, handler: (p, ctx) => MeetingService.remove(requireString_(p, 'id'), requireString_(p, 'expectedUpdatedAt'), ctx) },
+    'meeting.addTasks': { roles: INTERNAL_ROLES_, handler: (p, ctx) => MeetingService.addTasks(requireString_(p, 'meeting_id'),
+      requireArray_(p, 'tasks').map((t, i) => pickAllowed_(t, TASK_FIELDS_.concat(['project_id']), '第 ' + (i + 1) + ' 筆待辦')), ctx) },
     'project.types': { roles: INTERNAL_ROLES_, handler: () => PROJECT_TYPES },
     'template.seedTypes': { roles: [ROLES.ADMIN, ROLES.MANAGER], handler: (p, ctx) =>
       ({ added: withScriptLock_(() => seedTypeTemplates_(ctx.account)) }) },

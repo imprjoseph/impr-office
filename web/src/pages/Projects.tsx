@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { call } from "../api";
+import { MeetingList } from "./Meetings";
 import { Badge, Field, Loading, Modal, Page, RecordForm, Table, Tabs, money, pct, shortDate, useAction, useLoad, useLookups, useSaveQueue } from "../ui";
 
 // 活動類型：和後端 PROJECT_TYPES 一致（「頒獎典禮」已改為「典禮」）
@@ -358,52 +359,8 @@ function PricePicker({ project, categories, onClose, onDone }: { project: any; c
   );
 }
 
-function Meetings({ project, meetings, reload }: { project: any; meetings: any[]; reload: () => void }) {
-  const lk = useLookups();
-  const [open, setOpen] = useState(false);
-  const [meeting, setMeeting] = useState<any>({ title: "", meeting_date: new Date().toISOString().slice(0, 10), attendees: "", notes: "" });
-  const [items, setItems] = useState<any[]>([{ title: "", owner_account: "", due_date: "" }]);
-  const { busy, run } = useAction();
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const tasks = items.filter(i => i.title).map(i => ({ title: i.title, owner_account: i.owner_account || null, due_date: i.due_date || null }));
-    const r = await run(() => call("meeting.create", { meeting: Object.assign({}, meeting, { project_id: project.id }), tasks }), "已記錄會議，產生 " + tasks.length + " 項工作");
-    if (r) { setOpen(false); setItems([{ title: "", owner_account: "", due_date: "" }]); reload(); }
-  };
-  return (
-    <>
-      <div className="toolbar"><span className="spacer" /><button className="btn primary" onClick={() => setOpen(true)}>＋ 會議紀錄</button></div>
-      <Table rows={meetings} empty="還沒有會議紀錄。" columns={[
-        { key: "meeting_date", label: "日期", render: m => shortDate(m.meeting_date) },
-        { key: "title", label: "會議", render: m => <><b>{m.title}</b><small className="muted block pre">{m.notes || ""}</small></> },
-        { key: "attendees", label: "出席", hideSm: true },
-      ]} />
-      {open && (
-        <Modal title="會議紀錄" onClose={() => setOpen(false)} wide>
-          <form onSubmit={save}>
-            <div className="form-grid">
-              <label className="field"><span>會議名稱 *</span><input required value={meeting.title} onChange={e => setMeeting({ ...meeting, title: e.target.value })} /></label>
-              <label className="field"><span>日期 *</span><input type="date" required value={meeting.meeting_date} onChange={e => setMeeting({ ...meeting, meeting_date: e.target.value })} /></label>
-              <label className="field full"><span>出席</span><input value={meeting.attendees} onChange={e => setMeeting({ ...meeting, attendees: e.target.value })} /></label>
-              <label className="field full"><span>紀錄</span><textarea value={meeting.notes} onChange={e => setMeeting({ ...meeting, notes: e.target.value })} /></label>
-            </div>
-            <h3>決議待辦（會直接成為專案工作）</h3>
-            {items.map((it, i) => (
-              <div className="row3" key={i}>
-                <input placeholder="工作項目" value={it.title} onChange={e => setItems(items.map((x, j) => j === i ? { ...x, title: e.target.value } : x))} aria-label="工作項目" />
-                <select value={it.owner_account} onChange={e => setItems(items.map((x, j) => j === i ? { ...x, owner_account: e.target.value } : x))} aria-label="負責人">
-                  <option value="">負責人</option>{lk.people.map(p => <option key={p.account} value={p.account}>{p.name}</option>)}
-                </select>
-                <input type="date" value={it.due_date} onChange={e => setItems(items.map((x, j) => j === i ? { ...x, due_date: e.target.value } : x))} aria-label="截止日" />
-              </div>
-            ))}
-            <button type="button" className="btn" onClick={() => setItems([...items, { title: "", owner_account: "", due_date: "" }])}>＋ 再一項</button>
-            <div className="modal-foot"><button type="button" className="btn" onClick={() => setOpen(false)}>取消</button><button className="btn primary" disabled={busy}>儲存</button></div>
-          </form>
-        </Modal>
-      )}
-    </>
-  );
+function Meetings({ project, reload }: { project: any; meetings: any[]; reload: () => void }) {
+  return <MeetingList projectId={project.id} onChanged={reload} />;
 }
 
 function Bookings({ project, bookings, reload }: { project: any; bookings: any[]; reload: () => void }) {
