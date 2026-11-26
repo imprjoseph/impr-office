@@ -2,9 +2,9 @@
 module.exports = (test, { assert }) => {
   const day = n => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 
-  test('[AI] 沒設金鑰時給明確訊息', ({ call }) => {
+  test('[AI] 沒設金鑰時給明確訊息（預設 DeepSeek）', ({ call }) => {
     const { project } = call('hazel', 'project.create', { record: { name: '論壇' } });
-    assert.throws(() => call('hazel', 'ai.generateDocument', { kind: 'press_release', project_id: project.id, values: { client_unit: '台灣醫學會', event_name: '2027 醫學年會', organizer: '醫學會', timing: '活動當天發布', key_points: '十國專家\n成果發表' } }), e => /ANTHROPIC_API_KEY/.test(e.message));
+    assert.throws(() => call('hazel', 'ai.generateDocument', { kind: 'press_release', project_id: project.id, values: { client_unit: '台灣醫學會', event_name: '2027 醫學年會', organizer: '醫學會', timing: '活動當天發布', key_points: '十國專家\n成果發表' } }), e => /DEEPSEEK_API_KEY/.test(e.message));
   });
 
   test('[AI] 新聞稿：帶專案資料、用 Sonnet 加伺服器端備援、不含毛利；存成 Google 文件並記用量', (env) => {
@@ -136,6 +136,33 @@ module.exports = (test, { assert }) => {
     assert.strictEqual(call('hazel', 'meeting.delete', { id: m.id, expectedUpdatedAt: m.updated_at }).tasks_kept, 3);
     assert.strictEqual(app.repo_('project_tasks').findWhere(t => t.project_id === project.id && t.title === '修圖').length, 1);
     assert.strictEqual(call('hazel', 'meeting.list').length, 0);
+  });
+
+  test('[AI] DeepSeek：有 DeepSeek 金鑰就用 DeepSeek（OpenAI 格式、Bearer）；JSON 任務開 JSON 模式；查單位用 deepseek_web_search；設定可切回 Claude', (env) => {
+    const { call, properties, aiCalls, app } = env;
+    properties.DEEPSEEK_API_KEY = 'ds-key';
+    call('boss', 'people.sync');
+    env.aiHandler = (body, url) => {
+      assert.match(url, /api\.deepseek\.com\/chat\/completions/);
+      const isJson = body.response_format && body.response_format.type === 'json_object';
+      const content = isJson ? JSON.stringify({ summary: '摘要', decisions: ['決議'], actions: [{ title: '寄信', owner_account: 'amy', due_date: '' }], next_meeting_date: '' }) : '## 單位簡介\n國健署';
+      return { choices: [{ finish_reason: 'stop', message: { role: 'assistant', content, annotations: body.tools ? [{ type: 'url_citation', url_citation: { url: 'https://www.hpa.gov.tw/', title: '國健署' } }] : undefined } }],
+        usage: { prompt_tokens: 50, completion_tokens: 20 } };
+    };
+    const r = call('hazel', 'ai.meetingSummary', { notes: '今天討論主視覺，大家同意採用 B 案，Amy 寄信給客戶確認。' });
+    assert.strictEqual(r.summary, '摘要');
+    const last = aiCalls[aiCalls.length - 1];
+    assert.strictEqual(last.body.model, 'deepseek-v4-pro');
+    assert.strictEqual(last.body.messages[0].role, 'system');
+    const q = call('hazel', 'ai.researchClient', { client_unit: '國民健康署', kind: 'press_release' });
+    assert.deepStrictEqual(aiCalls[aiCalls.length - 1].body.tools, [{ type: 'deepseek_web_search' }]);
+    assert.deepStrictEqual(q.sources.map(x => x.url), ['https://www.hpa.gov.tw/']);
+    const job = app.repo_('ai_jobs').findAll().pop();
+    assert.deepStrictEqual([job.input_tokens, job.output_tokens], [50, 20]);
+    // 切回 Claude（兩把金鑰都有時照設定）
+    properties.ANTHROPIC_API_KEY = 'c-key';
+    app.withScriptLock_(() => { const s = app.repo_('settings').findAll().find(x => x.key === 'ai_text_provider'); app.repo_('settings').updateMany({ [s.id]: { value: 'claude' } }, 'boss'); });
+    assert.strictEqual(app.aiTextProvider_(), 'claude');
   });
 
   test('[AI] 平面設計：Claude 寫文案與 GPT 提示詞；再把提示詞交給 GPT 出圖，尺寸依比例換算並記用量', (env) => {

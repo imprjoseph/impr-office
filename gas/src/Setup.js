@@ -21,6 +21,10 @@ const DEFAULT_SETTINGS_ = [
   ['inventory_categories', '3C、錄音設備、音響設備、攝影器材、投影簡報、影音轉接、通訊設備、電力照明、展架、儀式、工具、報到設備、現場用品、文具、印刷耗材、電池、包材、清潔用品、其他',
     '資材的中項分類（用頓號分隔）；資產、耗材共用這份清單，要新增或改名直接改這裡'],
   ['quote_markup', '0', '報價參考沒填「對客戶報價」時，用成本加成多少當參考報價（0.3 = 加 30%；0 = 不自動加成）'],
+  ['ai_text_provider', 'deepseek', '文字類 AI（文件、會議整理、摘要、設計文案）用哪家：deepseek 或 claude；生圖固定用 GPT'],
+  ['deepseek_model', 'deepseek-v4-pro', 'DeepSeek 寫文件用的模型；DeepSeek 推出新版時改這裡'],
+  ['deepseek_fast_model', 'deepseek-flash', 'DeepSeek 每日提醒摘要用的快速模型'],
+  ['deepseek_reasoning', 'none', 'DeepSeek 思考深度：none（最快）、low、high；太深可能超過 60 秒逾時'],
   ['ai_monthly_token_limit', '2000000', 'AI 每月 token 用量上限，超過就暫停 AI 功能'],
 ];
 

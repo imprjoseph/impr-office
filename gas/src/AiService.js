@@ -137,6 +137,8 @@ const AiService = {
 
   /** 呼叫 Claude Messages API（raw HTTP；Apps Script 沒有官方 SDK）。回傳 { text, jobId }。 */
   callClaude_(model, system, prompt, maxTokens, kind, projectId, ctx, opts) {
+    // 文字類 AI 可在系統設定 ai_text_provider 切換 DeepSeek 或 Claude（生圖固定用 GPT）
+    if (aiTextProvider_() === 'deepseek') return callDeepSeek_(model === CLAUDE_SUMMARY_MODEL_, system, prompt, maxTokens, kind, projectId, ctx, opts);
     const o = opts || {};
     const key = PropertiesService.getScriptProperties().getProperty('ANTHROPIC_API_KEY');
     if (!key) throw new AppError(ERROR_CODES.VALIDATION, '尚未設定 Claude API 金鑰，請管理者在 Apps Script 的指令碼屬性加上 ANTHROPIC_API_KEY');
@@ -283,6 +285,96 @@ function openAiImageSize_(size) {
 }
 
 /** 從回應裡整理搜尋到的來源（標題＋網址），去除重複。 */
+// ---------------- DeepSeek ----------------
+const DEEPSEEK_URL_ = 'https://api.deepseek.com/chat/completions';
+
+/**
+ * 用哪家寫文字：設定 ai_text_provider = deepseek 或 claude。
+ * 選 DeepSeek 但只設了 Claude 金鑰（或反過來）時，自動改用有金鑰的那家，不讓功能整個停掉。
+ */
+function aiTextProvider_() {
+  const props = PropertiesService.getScriptProperties();
+  const want = String(setting_('ai_text_provider') || 'deepseek').trim().toLowerCase();
+  const hasDs = !!props.getProperty('DEEPSEEK_API_KEY');
+  const hasClaude = !!props.getProperty('ANTHROPIC_API_KEY');
+  if (want === 'claude') return hasClaude || !hasDs ? 'claude' : 'deepseek';
+  return hasDs || !hasClaude ? 'deepseek' : 'claude';
+}
+
+/**
+ * DeepSeek Chat Completions（OpenAI 格式）。回傳和 callClaude_ 一樣的 { text, jobId, sources }。
+ * 預設關掉思考模式：Apps Script 單次連線約 60 秒，思考模式容易逾時；要更深入可在設定 deepseek_reasoning 改 low／high。
+ * 查客戶單位時改用 DeepSeek 內建的 deepseek_web_search。
+ */
+function callDeepSeek_(fast, system, prompt, maxTokens, kind, projectId, ctx, opts) {
+  const o = opts || {};
+  const key = PropertiesService.getScriptProperties().getProperty('DEEPSEEK_API_KEY');
+  if (!key) throw new AppError(ERROR_CODES.VALIDATION, '尚未設定 DeepSeek API 金鑰，請管理者在 Apps Script 的指令碼屬性加上 DEEPSEEK_API_KEY');
+  assertAiQuota_();
+  const model = String(setting_(fast ? 'deepseek_fast_model' : 'deepseek_model') || (fast ? 'deepseek-flash' : 'deepseek-v4-pro')).trim();
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    messages: [{ role: 'system', content: system }, { role: 'user', content: prompt }],
+    reasoning_effort: fast ? 'none' : String(setting_('deepseek_reasoning') || 'none').trim(),
+  };
+  if (o.tools) body.tools = [{ type: 'deepseek_web_search' }];
+  // 要 JSON 的（平面設計、會議整理）開 JSON 模式，回傳一定是可解析的 JSON
+  if (/只輸出 JSON/.test(system)) body.response_format = { type: 'json_object' };
+  const job = { kind, project_id: projectId, prompt: String(prompt).slice(0, 4000), model, input_tokens: 0, output_tokens: 0 };
+  let res, json;
+  try {
+    res = UrlFetchApp.fetch(DEEPSEEK_URL_, {
+      method: 'post', contentType: 'application/json', headers: { Authorization: 'Bearer ' + key },
+      payload: JSON.stringify(body), muteHttpExceptions: true,
+    });
+  } catch (e) {
+    throw new AppError(ERROR_CODES.VALIDATION, 'AI 服務連線失敗，請稍後再試');
+  }
+  try { json = JSON.parse(res.getContentText()); } catch (e) { json = {}; }
+  const code = res.getResponseCode ? res.getResponseCode() : 200;
+  if (code >= 400 || json.error) {
+    const msg = json.error ? (json.error.message || String(json.error)) : 'HTTP ' + code;
+    recordAiJob_(Object.assign(job, { status: 'error', error: msg }), ctx);
+    throw new AppError(ERROR_CODES.VALIDATION, 'AI 服務暫時無法使用：' + msg);
+  }
+  const usage = json.usage || {};
+  job.input_tokens = usage.prompt_tokens || 0;
+  job.output_tokens = usage.completion_tokens || 0;
+  const choice = (json.choices || [])[0] || {};
+  const message = choice.message || {};
+  if (choice.finish_reason === 'content_filter') {
+    recordAiJob_(Object.assign(job, { status: 'refused' }), ctx);
+    throw new AppError(ERROR_CODES.VALIDATION, 'AI 拒絕產生這份內容，請調整補充說明後再試');
+  }
+  const text = String(message.content || '').trim();
+  if (!text) {
+    recordAiJob_(Object.assign(job, { status: 'error', error: 'empty: ' + (choice.finish_reason || '') }), ctx);
+    throw new AppError(ERROR_CODES.VALIDATION, 'AI 沒有回傳內容，請再試一次');
+  }
+  const finalText = choice.finish_reason === 'length' ? text + '\n\n【AI 輸出長度已達上限，內容可能不完整】' : text;
+  const jobRow = recordAiJob_(Object.assign(job, { status: 'done', output: finalText.slice(0, 40000) }), ctx);
+  return { text: finalText, jobId: jobRow.id, sources: deepSeekSources_(message) };
+}
+
+/** DeepSeek 搜尋的引用來源：annotations 裡帶網址的項目（格式不固定，能抓到網址就收）。 */
+function deepSeekSources_(message) {
+  const seen = {};
+  const out = [];
+  const visit = v => {
+    if (!v || typeof v !== 'object' || out.length >= 12) return;
+    if (Array.isArray(v)) { v.forEach(visit); return; }
+    const url = v.url || (v.url_citation && v.url_citation.url);
+    if (url && /^https?:\/\//.test(url) && !seen[url]) {
+      seen[url] = true;
+      out.push({ url, title: v.title || (v.url_citation && v.url_citation.title) || url });
+    }
+    Object.keys(v).forEach(k => { if (typeof v[k] === 'object') visit(v[k]); });
+  };
+  visit(message.annotations);
+  return out;
+}
+
 function webSources_(content) {
   const seen = {};
   const out = [];

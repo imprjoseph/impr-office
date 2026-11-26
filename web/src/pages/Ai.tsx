@@ -210,7 +210,7 @@ function Design({ form }: { form: any }) {
       <div className="modal-foot">
         {lack.length > 0 && <span className="muted small">還沒填：{lack.join("、")}</span>}
         <button className="btn primary" disabled={working || lack.length > 0} onClick={go}>
-          {busy && !drawing ? "Claude 撰寫文案與提示詞…" : drawing ? "GPT 出圖中，約需 30–60 秒…" : "產出設計"}
+          {busy && !drawing ? "AI 撰寫文案與提示詞…" : drawing ? "GPT 出圖中，約需 30–60 秒…" : "產出設計"}
         </button>
       </div>
       {plan && (
